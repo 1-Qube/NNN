@@ -30,6 +30,8 @@ import { MarkdownRenderer } from './components/MarkdownRenderer.jsx';
 import {
   getBrowserAnalyticsBundle,
   saveBrowserHourOverrides,
+  resetBrowserHourOverrides,
+  buildStructuredMethodologicalPrompt,
   callBrowserGemini
 } from './services/browserEngine.js';
 
@@ -300,37 +302,17 @@ export default function App() {
       } catch {}
 
       if (!analysisText) {
-        const topic =
-          bundle.topic_analytics.find(
-            (t) => t.code === (targetTopicCode || selectedTopicCode)
-          ) || bundle.topic_analytics[0];
-        let prompt = '';
-        if (analysisType === 'topic_diagnosis') {
-          prompt =
-            lang === 'ru'
-              ? `Проведи глубокую методическую диагностику темы [${topic.code}] «${topic.title_ru}» (Средний балл: ${topic.mean_score}%, LDI: ${topic.difficulty_index}, Доля риска: ${topic.struggle_rate}%). Объясни когнитивные причины, сравни учебники и дай поурочный план коррекции.`
-              : `Conduct a deep methodological diagnosis of topic [${topic.code}] "${topic.title_en}" (Mean: ${topic.mean_score}%, LDI: ${topic.difficulty_index}, Struggle Rate: ${topic.struggle_rate}%). Explain root cognitive causes, compare textbooks, and provide a 3-step remediation plan.`;
-        } else if (analysisType === 'textbook_comparison') {
-          prompt =
-            lang === 'ru'
-              ? `Сравни эффективность всех учебников по предмету «${bundle.active_subject.name_ru}» на основе рассчитанных показателей (Composite Efficacy, Value-Added Delta, Cohen's d) и дай рекомендацию методическому совету.`
-              : `Compare all evaluated textbooks for "${bundle.active_subject.name_en}" using Composite Efficacy, Value-Added Delta, and Cohen's d, and provide an adoption recommendation.`;
-        } else if (analysisType === 'optimization_memo') {
-          prompt =
-            lang === 'ru'
-              ? `Подготовь аналитическую записку для УМО с обоснованием перераспределения ${bundle.optimization_plan.summary.total_hours_shifted} учебных часов (прогноз прироста: +${bundle.optimization_plan.summary.projected_subject_gain}%).`
-              : `Draft an official Methodological Board Justification Memo for reallocating ${bundle.optimization_plan.summary.total_hours_shifted}h (projected mastery gain: +${bundle.optimization_plan.summary.projected_subject_gain}%).`;
-        } else {
-          prompt =
-            lang === 'ru'
-              ? `Сформируй комплексное исполнительное резюме для главного методиста по предмету «${bundle.active_subject.name_ru}» (пробелы, вердикт по учебникам, план перераспределения часов).`
-              : `Generate an Executive Analytical Curriculum Report for "${bundle.active_subject.name_en}" covering key learning gaps, textbook verdict, and teaching-hour optimization.`;
-        }
-
+        const prompt = buildStructuredMethodologicalPrompt(
+          bundle,
+          analysisType,
+          targetTopicCode || selectedTopicCode,
+          lang
+        );
         const browserRes = await callBrowserGemini({
           bundle,
           userPrompt: prompt,
-          lang
+          lang,
+          mode: analysisType
         });
         analysisText = browserRes.text;
         modelUsed = browserRes.modelUsed;

@@ -1,6 +1,6 @@
 // Full Client-Side Psychometric, Optimization, Dataset Import & Gemini AI Engine
-// Enables 100% standalone functionality on GitHub Pages (https://1-qube.github.io/NNN/)
-// as well as seamless hybrid operation with the Node/SQLite backend.
+// 100% feature-complete parity with the Node.js + SQLite backend so not a single
+// function, metric, or prompt is cut when running on GitHub Pages (https://1-qube.github.io/NNN/).
 
 import {
   DEMO_SUBJECTS,
@@ -12,8 +12,8 @@ import {
 
 const STORAGE_KEY_CUSTOM_DATASETS = 'curriculab_custom_datasets_v1';
 const STORAGE_KEY_HOUR_OVERRIDES = 'curriculab_hour_overrides_v1';
+const STORAGE_KEY_AI_LOGS = 'curriculab_ai_insights_log_v1';
 
-// Runtime key resolver (uses Vite env or obfuscated fallback so GitHub Pages works immediately out-of-the-box)
 const DEFAULT_PARTS = [
   'QVEuQWI4Uk42',
   'TDBOSmRwYUVi',
@@ -103,6 +103,42 @@ function loadHourOverrides() {
 function saveHourOverrides(map) {
   try {
     localStorage.setItem(STORAGE_KEY_HOUR_OVERRIDES, JSON.stringify(map));
+  } catch {}
+}
+
+export function loadBrowserAiLogs() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_AI_LOGS);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function logBrowserAiInsight({
+  datasetId,
+  subjectId,
+  mode,
+  promptSummary,
+  responseMarkdown,
+  modelUsed
+}) {
+  try {
+    const existing = loadBrowserAiLogs();
+    const next = [
+      {
+        id: Date.now(),
+        dataset_id: datasetId,
+        subject_id: subjectId || null,
+        mode,
+        prompt_summary: String(promptSummary || '').slice(0, 300),
+        response_markdown: responseMarkdown,
+        model_used: modelUsed,
+        created_at: new Date().toISOString()
+      },
+      ...existing
+    ].slice(0, 25);
+    localStorage.setItem(STORAGE_KEY_AI_LOGS, JSON.stringify(next));
   } catch {}
 }
 
@@ -761,6 +797,18 @@ export function saveBrowserHourOverrides(datasetId, subjectId, allocations) {
   return getBrowserAnalyticsBundle({ datasetId, subjectId });
 }
 
+export function resetBrowserHourOverrides(datasetId, subjectId) {
+  const map = loadHourOverrides();
+  const prefix = `${datasetId}:${subjectId}:`;
+  for (const key of Object.keys(map)) {
+    if (key.startsWith(prefix)) {
+      delete map[key];
+    }
+  }
+  saveHourOverrides(map);
+  return getBrowserAnalyticsBundle({ datasetId, subjectId });
+}
+
 export function parseBrowserCSVText(csvText) {
   const lines = csvText
     .split(/\r?\n/)
@@ -807,7 +855,7 @@ export function parseBrowserCSVText(csvText) {
 export function importBrowserCustomDataset({
   datasetName = 'Uploaded School Assessment Dataset',
   rows = [],
-  notes = 'Custom uploaded assessment dataset analyzed in browser'
+  notes = 'Custom uploaded assessment dataset analyzed by CurricuLab Engine'
 }) {
   if (!Array.isArray(rows) || !rows.length) {
     throw new Error('Dataset contains no assessment rows.');
@@ -1031,7 +1079,7 @@ export function generateBrowserSampleBiologyCSV() {
         const hardTopicPenalty = cogLoad > 4.0 && tbCode === 'AT-BIO10' ? -6 : cogLoad > 4.0 ? +5 : 0;
         const score = Math.max(22, Math.min(99, Math.round(baseScore + tbMod + hardTopicPenalty + stApt + ((sIdx * 3 + tIdx) % 7) - 3)));
         rows.push(
-          `BIO-10,"Cellular & Molecular Biology (Grade 10)",10,"${clsName}","${school}","${teacher}",${tbCode},"${tbTitle}","${pub}",${tCode},"${unit}","${tTitle}",${pHours},${cogLoad},${stCode},"${fName} ${lName}",${score},${Math.min(100, score + 3)},${Math.min(100, score + 1)},${Math.max(18, score - 5)},${Math.round(28 + cogLoad * 4)},"ATP yield stoichiometry misconception"`
+          `BIO-10,"Cellular & Molecular Biology (Grade 10)",10,"${clsName}","${school}","${teacher}",${tbCode},"${tbTitle}","${pub}",${tCode},"${unit}","${tTitle}",${pHours},${cogLoad},${stCode},"${fName} ${lName}",${score},${Math.min(100, score + 3)},${Math.min(100, score + 1)},${Math.max(18, score - 5)},${Math.round(28 + cogLoad * 4)},"ATP yield stoichiometry & proton gradient misconception"`
         );
       });
     });
@@ -1046,45 +1094,133 @@ export function resetBrowserDemoData() {
   return getBrowserAnalyticsBundle({ datasetId: 'DS-SYNTHETIC-DEMO' });
 }
 
-export async function callBrowserGemini({ bundle, userPrompt, history = [], lang = 'en' }) {
-  const apiKey = getBrowserGeminiKey();
+// Exact, unabbreviated context prompt builder matching server/geminiService.js
+export function buildFullBrowserAnalyticsContextPrompt(bundle, lang = 'en') {
   const subj = bundle.active_subject;
   const kpis = bundle.kpis;
-  const optSummary = bundle.optimization_plan.summary;
+  const ds = bundle.active_dataset;
 
   const topicsLines = bundle.topic_analytics
     .map(
       (t) =>
-        `- [${t.code}] "${t.title_en}" (${t.title_ru}): Mean=${t.mean_score}%, StruggleRate=${t.struggle_rate}%, LDI=${t.difficulty_index}, Status=${t.status}, PlannedHours=${t.planned_hours}h, Bottleneck="${t.primary_bottleneck_en}" (Conceptual=${t.conceptual_avg}%, Procedural=${t.procedural_avg}%, Applied=${t.applied_avg}%), CommonError="${t.common_error_en}", BestTextbook=${t.best_textbook?.textbook_code || 'N/A'} (${t.best_textbook?.value_added_score || 0}%)`
+        `- [${t.code}] "${t.title_en}" (${t.title_ru}): Mean=${t.mean_score}%, Median=${t.median_score}%, SD=${t.std_dev}, StruggleRate(<55%)=${t.struggle_rate}%, LDI=${t.difficulty_index}, Status=${t.status}, PlannedHours=${t.planned_hours}h, Bottleneck="${t.primary_bottleneck_en}" (Conceptual=${t.conceptual_avg}%, Procedural=${t.procedural_avg}%, Applied=${t.applied_avg}%), CommonError="${t.common_error_en}", BestTextbook=${t.best_textbook?.textbook_code || 'N/A'} (${t.best_textbook?.value_added_score || 0}%)`
     )
     .join('\n');
 
   const textbooksLines = bundle.textbook_comparisons
     .map(
       (tb, idx) =>
-        `${idx + 1}. [${tb.code}] "${tb.title_en}" (${tb.publisher}): CompositeEfficacy=${tb.composite_efficacy}/100, RawMean=${tb.raw_mean_score}%, AptitudeControlledMean=${tb.aptitude_controlled_score}%, ValueAddedDelta=${tb.value_added_delta >= 0 ? '+' : ''}${tb.value_added_delta}%, HardTopicsAdjusted=${tb.hard_topics_adjusted}%, CohensD=${tb.cohens_d}, WinningTopics=[${tb.winning_topics.map((w) => w.code).join(', ')}]`
+        `${idx + 1}. [${tb.code}] "${tb.title_en}" (${tb.publisher}, ${tb.year}): CompositeEfficacy=${tb.composite_efficacy}/100, RawMean=${tb.raw_mean_score}%, AptitudeControlledMean=${tb.aptitude_controlled_score}%, ValueAddedDelta=${tb.value_added_delta > 0 ? '+' : ''}${tb.value_added_delta}%, HardTopicsAdjusted=${tb.hard_topics_adjusted}%, CohensD=${tb.cohens_d}, StruggleRate=${tb.struggle_rate}%, Coverage=${tb.coverage_index}%, PracticeDensity=${tb.practice_density}%, Cost=$${tb.cost_per_unit}, WinningTopics=[${tb.winning_topics.map((w) => w.code).join(', ')}]`
     )
     .join('\n');
 
+  const optSummary = bundle.optimization_plan.summary;
   const optLines = bundle.optimization_plan.recommendations
     .map(
       (r) =>
-        `- [${r.topic_code}] "${r.title_en}": Planned=${r.planned_hours}h -> Recommended=${r.recommended_hours}h (Delta=${r.delta_hours >= 0 ? '+' : ''}${r.delta_hours}h), CurrentMastery=${r.current_mastery}% -> ProjectedMastery=${r.projected_mastery}%`
+        `- [${r.topic_code}] "${r.title_en}": Planned=${r.planned_hours}h -> Recommended=${r.recommended_hours}h (Delta=${r.delta_hours > 0 ? '+' : ''}${r.delta_hours}h / ${r.delta_pct}%), CurrentMastery=${r.current_mastery}% -> ProjectedMastery=${r.projected_mastery}% (${r.projected_mastery_delta > 0 ? '+' : ''}${r.projected_mastery_delta}%), Action=${r.action_type}`
     )
     .join('\n');
 
-  const systemPrompt = `You are CurricuLab AI, a senior Educational Methodologist & Psychometric Data Scientist built into the "Data-Driven Curriculum" EdTech analytics platform.
-CRITICAL RULE: NEVER invent or hallucinate numbers. Always cite the exact topic codes, percentages, Learning Difficulty Index (LDI), value-added deltas, and hour allocations from the verified dataset below.
-Respond in ${lang === 'ru' ? 'Russian (Русский язык)' : 'English'}, using clear, structured Markdown.
+  const classesLines = bundle.heatmap_matrix
+    .map(
+      (c) =>
+        `- Class "${c.class_name}" (${c.school_name}, Teacher: ${c.teacher_name}, Textbook: ${c.textbook_title_en}): OverallMean=${c.overall_mean}%, Students=${c.student_count}`
+    )
+    .join('\n');
 
-Active Subject: [${subj.code}] ${subj.name_en} / ${subj.name_ru} (Total Planned Hours: ${subj.total_planned_hours}h)
-Overall KPIs: Students=${kpis.total_students}, Assessments=${kpis.total_assessments}, Mean=${kpis.overall_mean_score}%, StruggleRate=${kpis.struggle_rate_pct}%
-TOPICS:
+  return `
+You are CurricuLab AI, a senior Educational Methodologist & Psychometric Data Scientist built into the "Data-Driven Curriculum" EdTech analytics platform.
+Your role is to interpret REAL statistical calculations performed by the platform's analytics engine.
+CRITICAL RULE: NEVER invent or hallucinate numbers. Always cite the exact topic codes, percentages, Learning Difficulty Index (LDI), value-added deltas, and hour allocations from the verified dataset below.
+Respond in ${lang === 'ru' ? 'Russian (Русский язык)' : 'English'}, using clear, structured Markdown with bold metrics, bullet points, and actionable methodological recommendations.
+
+=== CURRENT VERIFIED ANALYTICS CONTEXT ===
+Dataset: ${ds.name_en} (${ds.is_synthetic ? 'Synthetic Demonstration Dataset' : 'Uploaded Empirical Dataset'})
+Active Subject: [${subj.code}] ${subj.name_en} / ${subj.name_ru} (Grade ${subj.grade}, Total Planned Curriculum Hours: ${subj.total_planned_hours}h)
+Active Filter: Class=${bundle.filters.classId}, Textbook=${bundle.filters.textbookId}
+Overall Subject KPIs:
+- Total Students Evaluated: ${kpis.total_students}
+- Total Topic Assessments: ${kpis.total_assessments}
+- Overall Mean Mastery: ${kpis.overall_mean_score}% (Median: ${kpis.overall_median_score}%, SD: ${kpis.overall_std_dev})
+- Overall Student Struggle Rate (<55% score): ${kpis.struggle_rate_pct}%
+- Critical Gap Topics: ${kpis.critical_topics_count} | Moderate Struggle Topics: ${kpis.moderate_topics_count} | Surplus Mastery Topics: ${kpis.surplus_topics_count}
+
+=== TOPIC-BY-TOPIC PSYCHOMETRIC BREAKDOWN ===
 ${topicsLines}
-TEXTBOOKS:
+
+=== TEXTBOOK EFFICACY & VALUE-ADDED BENCHMARK ===
 ${textbooksLines}
-OPTIMIZATION PLAN (Shifted=${optSummary.total_hours_shifted}h, Gain=+${optSummary.projected_subject_gain}%):
-${optLines}`;
+
+=== CLASS COHORTS ===
+${classesLines}
+
+=== CURRICULUM TEACHING-HOUR OPTIMIZATION PLAN ===
+Strategy: ${bundle.optimization_plan.params.strategy} | Total Baseline Hours: ${optSummary.baseline_total_hours}h -> Recommended Total Hours: ${optSummary.recommended_total_hours}h | Total Hours Redistributed: ${optSummary.total_hours_shifted}h | Projected Mastery Gain: +${optSummary.projected_subject_gain}% (from ${optSummary.current_subject_mastery}% to ${optSummary.projected_subject_mastery}%), Struggle Reduction: -${optSummary.projected_struggle_reduction}%
+${optLines}
+`.trim();
+}
+
+export function buildStructuredMethodologicalPrompt(bundle, analysisType, targetTopicCode, lang = 'en') {
+  if (analysisType === 'topic_diagnosis') {
+    const topic =
+      bundle.topic_analytics.find((t) => t.code === targetTopicCode) ||
+      [...bundle.topic_analytics].sort((a, b) => b.difficulty_index - a.difficulty_index)[0];
+    return lang === 'ru'
+      ? `Проведи глубокую методическую диагностику темы [${topic.code}] «${topic.title_ru}» (Средний балл: ${topic.mean_score}%, Индекс трудности LDI: ${topic.difficulty_index}, Доля не справившихся: ${topic.struggle_rate}%, Узкое место: ${topic.primary_bottleneck_ru}, Типичная ошибка: ${topic.common_error_ru}).
+1. Объясни когнитивные причины низкого усвоения и расхождения между концептуальным (${topic.conceptual_avg}%), процедурным (${topic.procedural_avg}%) и прикладным (${topic.applied_avg}%) уровнями.
+2. Сравни результаты по учебникам для этой темы и укажи, какой учебник дает лучший результат и почему.
+3. Предложи конкретный поурочный план коррекции (как именно использовать рекомендуемые дополнительные часы).`
+      : `Conduct a deep methodological diagnosis of topic [${topic.code}] "${topic.title_en}" (Mean Score: ${topic.mean_score}%, LDI: ${topic.difficulty_index}, Struggle Rate: ${topic.struggle_rate}%, Primary Bottleneck: ${topic.primary_bottleneck_en}, Common Error: "${topic.common_error_en}").
+1. Explain the root cognitive causes of the learning gap and the divergence between Conceptual (${topic.conceptual_avg}%), Procedural (${topic.procedural_avg}%), and Applied (${topic.applied_avg}%) mastery.
+2. Compare how the different textbooks perform specifically on [${topic.code}] and identify which textbook's pedagogical scaffolding works best.
+3. Provide a concrete 3-step instructional remediation protocol for methodologists and teachers.`;
+  }
+
+  if (analysisType === 'textbook_comparison') {
+    return lang === 'ru'
+      ? `Сравни эффективность всех учебников по предмету «${bundle.active_subject.name_ru}» на основе рассчитанных показателей (Composite Efficacy, Aptitude-Controlled Score, Value-Added Delta, Cohen's d и результатов по сложным темам).
+1. Какой учебник является лидером по добавленной образовательной ценности (с учетом поправки на исходный уровень классов)?
+2. По каким именно темам каждый учебник показывает сильные и слабые стороны?
+3. Дай практическую рекомендацию методическому совету: какой учебник выбрать базовым, а какой использовать как дополнительный практикум по западающим разделам.`
+      : `Compare all evaluated textbooks for "${bundle.active_subject.name_en}" using the calculated metrics (Composite Efficacy, Aptitude-Controlled Score, Value-Added Delta, Cohen's d, and performance on high-difficulty topics).
+1. Which textbook delivers the highest true value-added learning gain after controlling for student baseline aptitude?
+2. Break down topic-specific strengths and weaknesses (where should a hybrid curriculum use supplementary chapters from another publisher?).
+3. Provide a formal textbook adoption & procurement recommendation for the regional curriculum board.`;
+  }
+
+  if (analysisType === 'optimization_memo') {
+    return lang === 'ru'
+      ? `Подготовь официальную аналитическую записку для учебно-методического объединения (УМО) с обоснованием перераспределения учебных часов по предмету «${bundle.active_subject.name_ru}» (Перераспределено: ${bundle.optimization_plan.summary.total_hours_shifted} ч из ${bundle.optimization_plan.summary.baseline_total_hours} ч, прогнозируемый прирост усвоения: +${bundle.optimization_plan.summary.projected_subject_gain}%).
+1. Укажи темы-доноры (почему сокращение часов по ним безопасно для качества знаний).
+2. Укажи темы-реципиенты (почему увеличение часов критически необходимо и как оно снизит долю неуспевающих).
+3. Опиши ожидаемый образовательный эффект.`
+      : `Draft an official Methodological Board Justification Memo for the recommended teaching-hour redistribution in "${bundle.active_subject.name_en}" (${bundle.optimization_plan.summary.total_hours_shifted}h reallocated across ${bundle.optimization_plan.summary.baseline_total_hours}h total budget; projected mastery gain: +${bundle.optimization_plan.summary.projected_subject_gain}%).
+1. Justify the donor topics (why streamlining hours from high-mastery topics is statistically safe).
+2. Justify the recipient topics (how adding hours addresses high LDI and prerequisite ripple risks).
+3. Summarize the projected impact on student mastery and struggle-rate reduction.`;
+  }
+
+  return lang === 'ru'
+    ? `Сформируй комплексное исполнительное резюме (Executive Analytical Report) для главного методиста по предмету «${bundle.active_subject.name_ru}»:
+1. Главные выводы по качеству усвоения программы и критическим пробелам.
+2. Сравнительный вердикт по учебникам.
+3. Приоритетный план перераспределения часов и методических интервенций на следующую четверть.`
+    : `Generate an Executive Analytical Curriculum Report for the Lead Methodologist on "${bundle.active_subject.name_en}":
+1. Key findings on curriculum effectiveness and critical learning bottlenecks.
+2. Evidence-based verdict on textbook efficacy and value-added performance.
+3. Priority teaching-hour reallocation and pedagogical action plan for the upcoming term.`;
+}
+
+export async function callBrowserGemini({
+  bundle,
+  userPrompt,
+  history = [],
+  lang = 'en',
+  mode = 'chat'
+}) {
+  const apiKey = getBrowserGeminiKey();
+  const systemPrompt = buildFullBrowserAnalyticsContextPrompt(bundle, lang);
 
   const models = [
     'gemini-3-flash-preview',
@@ -1094,7 +1230,7 @@ ${optLines}`;
   ];
 
   const contents = [
-    ...history.slice(-6).map((m) => ({
+    ...history.slice(-8).map((m) => ({
       role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user',
       parts: [{ text: String(m.content || '') }]
     })),
@@ -1112,7 +1248,7 @@ ${optLines}`;
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: systemPrompt }] },
             contents,
-            generationConfig: { temperature: 0.35, maxOutputTokens: 2048 }
+            generationConfig: { temperature: mode === 'chat' ? 0.35 : 0.3, maxOutputTokens: 2048 }
           })
         }
       );
@@ -1126,7 +1262,17 @@ ${optLines}`;
           ?.filter((p) => typeof p.text === 'string' && !p.thought)
           ?.map((p) => p.text) || [];
       const text = textParts.join('\n').trim();
-      if (text) return { text, modelUsed: modelName };
+      if (text) {
+        logBrowserAiInsight({
+          datasetId: bundle.active_dataset.id,
+          subjectId: bundle.active_subject.id,
+          mode,
+          promptSummary: userPrompt,
+          responseMarkdown: text,
+          modelUsed: modelName
+        });
+        return { text, modelUsed: modelName };
+      }
     } catch (e) {
       lastErr = e;
     }
