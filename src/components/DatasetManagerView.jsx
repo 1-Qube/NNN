@@ -9,6 +9,12 @@ import {
   Sparkles,
   Play
 } from 'lucide-react';
+import {
+  parseBrowserCSVText,
+  importBrowserCustomDataset,
+  generateBrowserSampleBiologyCSV,
+  resetBrowserDemoData
+} from '../services/browserEngine.js';
 
 const INLINE_EDITABLE_SAMPLE_CSV = `subject_code,subject_name,grade,class_name,school_name,teacher_name,textbook_code,textbook_title,publisher,topic_code,unit,topic_title,planned_hours,cognitive_load,student_code,student_name,score_pct
 GEO-09,Economic & Physical Geography (Grade 9),9,9-A Lyceum,Taraz Lyceum #1,A. Kassymova,MK-GEO9,Geography of Kazakhstan 9 (Mektep),Mektep Press,G9-T1,Unit 1: Cartography & GIS,Topographic Projections & GIS Spatial Analysis,8,4.6,GEO-101,Alikhan Saparov,46
@@ -44,27 +50,46 @@ export function DatasetManagerView({
     setCsvText(text);
   };
 
+  const handleDownloadSampleCSV = () => {
+    const csv = generateBrowserSampleBiologyCSV();
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'grade10_biology_assessment_sample.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleUploadCustom = async (e) => {
     e.preventDefault();
     setUploading(true);
     setErrorMsg(null);
     setStatusMsg(null);
     try {
-      let bodyPayload = { datasetName };
       const trimmed = csvText.trim();
-      if (trimmed.startsWith('[')) {
-        bodyPayload.rows = JSON.parse(trimmed);
-      } else {
-        bodyPayload.csvText = trimmed;
-      }
+      const parsedRows = trimmed.startsWith('[')
+        ? JSON.parse(trimmed)
+        : parseBrowserCSVText(trimmed);
 
-      const res = await fetch('/api/datasets/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyPayload)
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      let data = null;
+      try {
+        const res = await fetch('/api/datasets/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ datasetName, rows: parsedRows })
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch {}
+
+      if (!data) {
+        data = importBrowserCustomDataset({
+          datasetName,
+          rows: parsedRows
+        });
+      }
 
       setStatusMsg(
         lang === 'ru'
@@ -84,9 +109,21 @@ export function DatasetManagerView({
     setErrorMsg(null);
     setStatusMsg(null);
     try {
-      const res = await fetch('/api/datasets/load-sample-biology', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load sample');
+      let data = null;
+      try {
+        const res = await fetch('/api/datasets/load-sample-biology', { method: 'POST' });
+        if (res.ok) data = await res.json();
+      } catch {}
+
+      if (!data) {
+        const rows = parseBrowserCSVText(generateBrowserSampleBiologyCSV());
+        data = importBrowserCustomDataset({
+          datasetName: 'Grade 10 Molecular Biology Benchmark (Uploaded CSV Sample)',
+          rows,
+          notes: 'Imported from Grade 10 Biology 120-assessment multi-textbook cohort CSV.'
+        });
+      }
+
       setStatusMsg(
         lang === 'ru'
           ? `Загружен тестовый датасет «Биология 10 класс» (${data.import_summary.record_count} оценок). Переключите вкладку для просмотра новых графиков!`
@@ -104,15 +141,25 @@ export function DatasetManagerView({
     setUploading(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/datasets/reset-demo', { method: 'POST' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
+      let newBundle = null;
+      try {
+        const res = await fetch('/api/datasets/reset-demo', { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          newBundle = data.bundle;
+        }
+      } catch {}
+
+      if (!newBundle) {
+        newBundle = resetBrowserDemoData();
+      }
+
       setStatusMsg(
         lang === 'ru'
           ? 'Демонстрационный синтетический датасет восстановлен к исходному состоянию.'
           : 'Synthetic Demonstration Dataset restored to default state.'
       );
-      onUploadSuccess(data.bundle);
+      onUploadSuccess(newBundle);
     } catch (err) {
       setErrorMsg(err.message);
     } finally {
@@ -165,7 +212,7 @@ export function DatasetManagerView({
                 <Database size={18} color="var(--accent-primary)" />
                 {lang === 'ru'
                   ? 'Управление наборами образовательных данных'
-                  : 'Educational Assessment Datasets in SQLite'}
+                  : 'Educational Assessment Datasets'}
               </div>
               <div className="panel-subtitle">
                 {lang === 'ru'
@@ -267,16 +314,16 @@ export function DatasetManagerView({
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <a
-                  href="/api/datasets/sample-csv"
-                  download="grade10_biology_sample.csv"
+                <button
+                  type="button"
+                  onClick={handleDownloadSampleCSV}
                   className="btn btn-secondary btn-sm"
-                  style={{ textDecoration: 'none' }}
                 >
                   <Download size={14} />
                   {lang === 'ru' ? 'Скачать шаблон CSV' : 'Download CSV Template'}
-                </a>
+                </button>
                 <button
+                  type="button"
                   className="btn btn-teal btn-sm"
                   onClick={handleLoadBiologySample}
                   disabled={uploading}

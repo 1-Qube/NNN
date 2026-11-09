@@ -27,6 +27,11 @@ import { AiAssistantPanel } from './components/AiAssistant.jsx';
 import { DatasetManagerView } from './components/DatasetManagerView.jsx';
 import { ReportBuilderView } from './components/ReportBuilderView.jsx';
 import { MarkdownRenderer } from './components/MarkdownRenderer.jsx';
+import {
+  getBrowserAnalyticsBundle,
+  saveBrowserHourOverrides,
+  callBrowserGemini
+} from './services/browserEngine.js';
 
 export default function App() {
   const [lang, setLang] = useState('ru'); // Default RU as shown on the Zhambyl Hub Hackathon case card, with 1-click EN toggle
@@ -82,24 +87,40 @@ export default function App() {
         const maxPct = overrides.maxChangePct ?? optMaxChangePct;
         const bDelta = overrides.budgetDeltaHours ?? optBudgetDelta;
 
-        const params = new URLSearchParams({
-          datasetId: ds,
-          ...(sub ? { subjectId: sub } : {}),
-          classId: cls,
-          textbookId: tb,
-          strategy: strat,
-          maxChangePct: String(maxPct),
-          budgetDeltaHours: String(bDelta)
-        });
+        let data = null;
+        try {
+          const params = new URLSearchParams({
+            datasetId: ds,
+            ...(sub ? { subjectId: sub } : {}),
+            classId: cls,
+            textbookId: tb,
+            strategy: strat,
+            maxChangePct: String(maxPct),
+            budgetDeltaHours: String(bDelta)
+          });
+          const res = await fetch(`/api/analytics?${params.toString()}`);
+          if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+            data = await res.json();
+          }
+        } catch {}
 
-        const res = await fetch(`/api/analytics?${params.toString()}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to load analytics');
+        if (!data) {
+          data = getBrowserAnalyticsBundle({
+            datasetId: ds,
+            subjectId: sub,
+            classId: cls,
+            textbookId: tb,
+            optimizationParams: {
+              strategy: strat,
+              maxChangePct: Number(maxPct),
+              budgetDeltaHours: Number(bDelta)
+            }
+          });
+        }
 
         setBundle(data);
         setSubjectId(data.active_subject.id);
 
-        // Initialize selected topic to the highest difficulty topic if not already in subject
         if (
           !selectedTopicCode ||
           !data.topic_analytics.some((t) => t.code === selectedTopicCode)
@@ -110,7 +131,6 @@ export default function App() {
           setSelectedTopicCode(hardest?.code || data.topic_analytics[0]?.code);
         }
 
-        // Sync customHoursMap with recommended_hours
         const nextHours = {};
         data.optimization_plan.recommendations.forEach((r) => {
           nextHours[r.topic_id] = r.recommended_hours;
@@ -161,31 +181,49 @@ export default function App() {
     setIsGeneratingAi(true);
 
     try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          datasetId,
-          subjectId,
-          classId,
-          textbookId,
-          strategy: optStrategy,
-          maxChangePct: optMaxChangePct,
-          budgetDeltaHours: optBudgetDelta,
-          message: userMessage,
+      let replyText = null;
+      let modelUsed = null;
+      try {
+        const res = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            datasetId,
+            subjectId,
+            classId,
+            textbookId,
+            strategy: optStrategy,
+            maxChangePct: optMaxChangePct,
+            budgetDeltaHours: optBudgetDelta,
+            message: userMessage,
+            history: aiMessages.slice(-6),
+            lang
+          })
+        });
+        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+          const data = await res.json();
+          replyText = data.reply;
+          modelUsed = data.modelUsed;
+        }
+      } catch {}
+
+      if (!replyText) {
+        const browserRes = await callBrowserGemini({
+          bundle,
+          userPrompt: userMessage,
           history: aiMessages.slice(-6),
           lang
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gemini request failed');
+        });
+        replyText = browserRes.text;
+        modelUsed = browserRes.modelUsed;
+      }
 
       setAiMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: data.reply,
-          modelUsed: data.modelUsed
+          content: replyText,
+          modelUsed
         }
       ]);
     } catch (err) {
@@ -235,31 +273,75 @@ export default function App() {
     ]);
 
     try {
-      const res = await fetch('/api/ai/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          datasetId,
-          subjectId,
-          classId,
-          textbookId,
-          strategy: optStrategy,
-          maxChangePct: optMaxChangePct,
-          budgetDeltaHours: optBudgetDelta,
-          analysisType,
-          targetTopicCode: targetTopicCode || selectedTopicCode,
+      let analysisText = null;
+      let modelUsed = null;
+      try {
+        const res = await fetch('/api/ai/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            datasetId,
+            subjectId,
+            classId,
+            textbookId,
+            strategy: optStrategy,
+            maxChangePct: optMaxChangePct,
+            budgetDeltaHours: optBudgetDelta,
+            analysisType,
+            targetTopicCode: targetTopicCode || selectedTopicCode,
+            lang
+          })
+        });
+        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+          const data = await res.json();
+          analysisText = data.analysis;
+          modelUsed = data.modelUsed;
+        }
+      } catch {}
+
+      if (!analysisText) {
+        const topic =
+          bundle.topic_analytics.find(
+            (t) => t.code === (targetTopicCode || selectedTopicCode)
+          ) || bundle.topic_analytics[0];
+        let prompt = '';
+        if (analysisType === 'topic_diagnosis') {
+          prompt =
+            lang === 'ru'
+              ? `Проведи глубокую методическую диагностику темы [${topic.code}] «${topic.title_ru}» (Средний балл: ${topic.mean_score}%, LDI: ${topic.difficulty_index}, Доля риска: ${topic.struggle_rate}%). Объясни когнитивные причины, сравни учебники и дай поурочный план коррекции.`
+              : `Conduct a deep methodological diagnosis of topic [${topic.code}] "${topic.title_en}" (Mean: ${topic.mean_score}%, LDI: ${topic.difficulty_index}, Struggle Rate: ${topic.struggle_rate}%). Explain root cognitive causes, compare textbooks, and provide a 3-step remediation plan.`;
+        } else if (analysisType === 'textbook_comparison') {
+          prompt =
+            lang === 'ru'
+              ? `Сравни эффективность всех учебников по предмету «${bundle.active_subject.name_ru}» на основе рассчитанных показателей (Composite Efficacy, Value-Added Delta, Cohen's d) и дай рекомендацию методическому совету.`
+              : `Compare all evaluated textbooks for "${bundle.active_subject.name_en}" using Composite Efficacy, Value-Added Delta, and Cohen's d, and provide an adoption recommendation.`;
+        } else if (analysisType === 'optimization_memo') {
+          prompt =
+            lang === 'ru'
+              ? `Подготовь аналитическую записку для УМО с обоснованием перераспределения ${bundle.optimization_plan.summary.total_hours_shifted} учебных часов (прогноз прироста: +${bundle.optimization_plan.summary.projected_subject_gain}%).`
+              : `Draft an official Methodological Board Justification Memo for reallocating ${bundle.optimization_plan.summary.total_hours_shifted}h (projected mastery gain: +${bundle.optimization_plan.summary.projected_subject_gain}%).`;
+        } else {
+          prompt =
+            lang === 'ru'
+              ? `Сформируй комплексное исполнительное резюме для главного методиста по предмету «${bundle.active_subject.name_ru}» (пробелы, вердикт по учебникам, план перераспределения часов).`
+              : `Generate an Executive Analytical Curriculum Report for "${bundle.active_subject.name_en}" covering key learning gaps, textbook verdict, and teaching-hour optimization.`;
+        }
+
+        const browserRes = await callBrowserGemini({
+          bundle,
+          userPrompt: prompt,
           lang
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Analysis failed');
+        });
+        analysisText = browserRes.text;
+        modelUsed = browserRes.modelUsed;
+      }
 
       setAiMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: data.analysis,
-          modelUsed: data.modelUsed
+          content: analysisText,
+          modelUsed
         }
       ]);
 
@@ -267,15 +349,15 @@ export default function App() {
         setTopicDiagnosisCache((prev) => ({
           ...prev,
           [targetTopicCode || selectedTopicCode]: {
-            content: data.analysis,
-            modelUsed: data.modelUsed
+            content: analysisText,
+            modelUsed
           }
         }));
       }
 
       if (analysisType === 'executive_summary') {
         setSavedReportAiSections((prev) => [
-          { content: data.analysis, modelUsed: data.modelUsed },
+          { content: analysisText, modelUsed },
           ...prev
         ]);
       }
@@ -300,25 +382,38 @@ export default function App() {
     }));
 
     try {
-      const res = await fetch('/api/optimization/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          datasetId: bundle.active_dataset.id,
-          subjectId: bundle.active_subject.id,
+      let updatedBundle = null;
+      try {
+        const res = await fetch('/api/optimization/apply', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            datasetId: bundle.active_dataset.id,
+            subjectId: bundle.active_subject.id,
+            allocations
+          })
+        });
+        if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
+          const data = await res.json();
+          updatedBundle = data.bundle;
+        }
+      } catch {}
+
+      if (!updatedBundle) {
+        updatedBundle = saveBrowserHourOverrides(
+          bundle.active_dataset.id,
+          bundle.active_subject.id,
           allocations
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setBundle(data.bundle);
-        setSaveToast(
-          lang === 'ru'
-            ? 'Новое распределение учебных часов сохранено в базу данных SQLite!'
-            : 'Updated teaching-hour schedule saved to SQLite database!'
         );
-        setTimeout(() => setSaveToast(null), 3500);
       }
+
+      setBundle(updatedBundle);
+      setSaveToast(
+        lang === 'ru'
+          ? 'Новое распределение учебных часов сохранено!'
+          : 'Updated teaching-hour schedule saved!'
+      );
+      setTimeout(() => setSaveToast(null), 3500);
     } catch (err) {
       console.error(err);
     }
