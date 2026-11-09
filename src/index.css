@@ -698,3 +698,24 @@ h1, h2, h3, h4, .display-font {
     gap: 8px;
   }
 }
+
+/* ---- Supplemental component classes (SYNA style) ---- */
+.ai-messages-area { display:flex; flex-direction:column; gap:16px; padding:20px; overflow-y:auto; flex:1; min-height:0; }
+.btn-ghost { background:transparent; border:1px solid var(--ink,#111); color:var(--ink,#111); }
+.btn-ghost:hover { background:#C8FF2E; }
+.markdown-content { font-family:'Inter',sans-serif; font-size:14px; line-height:1.65; color:#111; }
+.markdown-content h1,.markdown-content h2,.markdown-content h3 { font-family:'Space Grotesk',sans-serif; font-weight:700; margin:16px 0 8px; text-transform:uppercase; letter-spacing:-0.01em; }
+.markdown-content p { margin:0 0 10px; }
+.markdown-content ul,.markdown-content ol { padding-left:20px; margin:0 0 10px; }
+.markdown-content li { margin-bottom:4px; }
+.markdown-content strong { background:#C8FF2E; padding:0 3px; font-weight:700; }
+.markdown-content code { font-family:'Space Mono',monospace; background:#E8E4DA; padding:1px 4px; font-size:12px; }
+.markdown-content table { border-collapse:collapse; width:100%; margin:10px 0; font-size:13px; }
+.markdown-content th,.markdown-content td { border:1px solid #111; padding:6px 8px; text-align:left; }
+.markdown-content th { background:#E8E4DA; font-family:'Space Mono',monospace; font-size:11px; text-transform:uppercase; }
+.prompt-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.prompt-chip { font-family:'Space Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.04em; border:1px solid #111; background:#F4F1EA; color:#111; padding:6px 10px; cursor:pointer; text-align:left; transition:background .15s, transform .15s; }
+.prompt-chip:hover { background:#C8FF2E; transform:translate(-1px,-1px); box-shadow:2px 2px 0 #111; }
+.prompt-chip:disabled { opacity:.5; cursor:not-allowed; }
+.status-dot { display:inline-block; width:8px; height:8px; background:#C8FF2E; border:1px solid #111; flex-shrink:0; }
+.challenger-zone { position:relative; }
