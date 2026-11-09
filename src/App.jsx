@@ -12,14 +12,14 @@ import {
   Award,
   Search,
   RotateCcw,
-  Save
+  Save,
 } from 'lucide-react';
 import { T } from './i18n.js';
 import {
   ClassTopicHeatmap,
   HoursOptimizationSVGChart,
   TextbookMultiDimensionChart,
-  getScoreColor
+  getScoreColor,
 } from './components/Charts.jsx';
 import { AiAssistantPanel } from './components/AiAssistant.jsx';
 import { DatasetManagerView } from './components/DatasetManagerView.jsx';
@@ -30,12 +30,13 @@ import {
   saveBrowserHourOverrides,
   resetBrowserHourOverrides,
   buildStructuredMethodologicalPrompt,
-  callBrowserGemini
+  callBrowserGemini,
 } from './services/browserEngine.js';
 
 export default function App() {
   const [lang, setLang] = useState('ru');
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Filter & Optimization State
   const [datasetId, setDatasetId] = useState('DS-SYNTHETIC-DEMO');
@@ -67,13 +68,83 @@ export default function App() {
       role: 'assistant',
       modelUsed: 'gemini-3-flash-preview',
       content:
-        'Здравствуйте! Я **CurricuLab AI** — интеллектуальный ассистент методиста на базе **Google Gemini**.\n\nЯ подключен к реальному статистическому движку платформы. Выберите любой предмет, класс, учебник или тему программы — я проанализирую когнитивные причины пробелов в знаниях, сравню эффективность учебников с учетом уровня классов и обосную оптимальное перераспределение учебных часов.\n\n*(Switch to **EN** in the top-right corner at any time for full English interface & AI responses.)*'
-    }
+        'Здравствуйте! Я **CurricuLab AI** — интеллектуальный ассистент методиста на базе **Google Gemini**.\n\nЯ подключен к реальному статистическому движку платформы. Выберите любой предмет, класс, учебник или тему программы — я проанализирую когнитивные причины пробелов в знаниях, сравню эффективность учебников с учетом уровня классов и обосную оптимальное перераспределение учебных часов.\n\n*(Switch to **EN** in the top-right corner at any time for full English interface & AI responses.)*',
+    },
   ]);
   const [topicDiagnosisCache, setTopicDiagnosisCache] = useState({});
   const [savedReportAiSections, setSavedReportAiSections] = useState([]);
 
   const dict = T[lang] || T.en;
+
+  // Custom Cursor Implementation with Lag & Interactive Hover (Exact match to innovative hackaton.html)
+  useEffect(() => {
+    const dot = document.getElementById('cursor-dot');
+    const ring = document.getElementById('cursor-ring');
+
+    if (!dot || !ring) return;
+
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) {
+      dot.style.display = 'none';
+      ring.style.display = 'none';
+      document.body.classList.remove('custom-cursor-active');
+      return;
+    }
+
+    let mouseX = -100;
+    let mouseY = -100;
+    let ringX = -100;
+    let ringY = -100;
+
+    const onMouseMove = (e) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+      dot.style.transform = `translate3d(${mouseX}px, ${mouseY}px, 0) translate(-50%, -50%)`;
+    };
+
+    const render = () => {
+      ringX += (mouseX - ringX) * 0.18;
+      ringY += (mouseY - ringY) * 0.18;
+      ring.style.transform = `translate3d(${ringX}px, ${ringY}px, 0) translate(-50%, -50%)`;
+      requestAnimationFrame(render);
+    };
+
+    const onMouseOver = (e) => {
+      const target = e.target;
+      if (
+        target.closest('button') ||
+        target.closest('a') ||
+        target.closest('input') ||
+        target.closest('select') ||
+        target.closest('textarea') ||
+        target.closest('.interactive-target') ||
+        target.closest('.topic-bar-row')
+      ) {
+        ring.classList.add('cursor-hover');
+        if (target.closest('.challenger-zone')) {
+          ring.classList.add('cursor-challenger');
+        }
+      } else {
+        ring.classList.remove('cursor-hover');
+        ring.classList.remove('cursor-challenger');
+      }
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseover', onMouseOver);
+    const animId = requestAnimationFrame(render);
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseover', onMouseOver);
+      cancelAnimationFrame(animId);
+    };
+  }, []);
+
+  // Scroll to top on tab change
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activeTab]);
 
   const fetchAnalytics = useCallback(
     async (overrides = {}) => {
@@ -96,7 +167,7 @@ export default function App() {
             textbookId: tb,
             strategy: strat,
             maxChangePct: String(maxPct),
-            budgetDeltaHours: String(bDelta)
+            budgetDeltaHours: String(bDelta),
           });
           const res = await fetch(`/api/analytics?${params.toString()}`);
           if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
@@ -113,8 +184,8 @@ export default function App() {
             optimizationParams: {
               strategy: strat,
               maxChangePct: Number(maxPct),
-              budgetDeltaHours: Number(bDelta)
-            }
+              budgetDeltaHours: Number(bDelta),
+            },
           });
         }
 
@@ -150,7 +221,7 @@ export default function App() {
       optStrategy,
       optMaxChangePct,
       optBudgetDelta,
-      selectedTopicCode
+      selectedTopicCode,
     ]
   );
 
@@ -197,8 +268,8 @@ export default function App() {
             budgetDeltaHours: optBudgetDelta,
             message: userMessage,
             history: aiMessages.slice(-6),
-            lang
-          })
+            lang,
+          }),
         });
         if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
           const data = await res.json();
@@ -213,7 +284,7 @@ export default function App() {
           userPrompt: userMessage,
           history: aiMessages.slice(-6),
           lang,
-          mode: 'chat'
+          mode: 'chat',
         });
         replyText = browserRes.text;
         modelUsed = browserRes.modelUsed;
@@ -224,16 +295,16 @@ export default function App() {
         {
           role: 'assistant',
           content: replyText,
-          modelUsed
-        }
+          modelUsed,
+        },
       ]);
     } catch (err) {
       setAiMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: `**Error communicating with Gemini API:** ${err.message}`
-        }
+          content: `**Error communicating with Gemini API:** ${err.message}`,
+        },
       ]);
     } finally {
       setIsGeneratingAi(false);
@@ -265,12 +336,12 @@ export default function App() {
       executive_summary:
         lang === 'ru'
           ? 'Запрос комплексного резюме по учебной программе'
-          : 'Generate Executive Methodologist Curriculum Report'
+          : 'Generate Executive Methodologist Curriculum Report',
     };
 
     setAiMessages((prev) => [
       ...prev,
-      { role: 'user', content: labelMap[analysisType] || analysisType }
+      { role: 'user', content: labelMap[analysisType] || analysisType },
     ]);
 
     try {
@@ -290,8 +361,8 @@ export default function App() {
             budgetDeltaHours: optBudgetDelta,
             analysisType,
             targetTopicCode: targetTopicCode || selectedTopicCode,
-            lang
-          })
+            lang,
+          }),
         });
         if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
           const data = await res.json();
@@ -311,7 +382,7 @@ export default function App() {
           bundle,
           userPrompt: prompt,
           lang,
-          mode: analysisType
+          mode: analysisType,
         });
         analysisText = browserRes.text;
         modelUsed = browserRes.modelUsed;
@@ -322,8 +393,8 @@ export default function App() {
         {
           role: 'assistant',
           content: analysisText,
-          modelUsed
-        }
+          modelUsed,
+        },
       ]);
 
       if (analysisType === 'topic_diagnosis' && (targetTopicCode || selectedTopicCode)) {
@@ -331,15 +402,15 @@ export default function App() {
           ...prev,
           [targetTopicCode || selectedTopicCode]: {
             content: analysisText,
-            modelUsed
-          }
+            modelUsed,
+          },
         }));
       }
 
       if (analysisType === 'executive_summary') {
         setSavedReportAiSections((prev) => [
           { content: analysisText, modelUsed },
-          ...prev
+          ...prev,
         ]);
       }
     } catch (err) {
@@ -347,8 +418,8 @@ export default function App() {
         ...prev,
         {
           role: 'assistant',
-          content: `**Error:** ${err.message}`
-        }
+          content: `**Error:** ${err.message}`,
+        },
       ]);
     } finally {
       setIsGeneratingAi(false);
@@ -359,7 +430,7 @@ export default function App() {
     if (!bundle) return;
     const allocations = Object.entries(customHoursMap).map(([topic_id, allocated_hours]) => ({
       topic_id,
-      allocated_hours: Number(allocated_hours)
+      allocated_hours: Number(allocated_hours),
     }));
 
     try {
@@ -371,8 +442,8 @@ export default function App() {
           body: JSON.stringify({
             datasetId: bundle.active_dataset.id,
             subjectId: bundle.active_subject.id,
-            allocations
-          })
+            allocations,
+          }),
         });
         if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
           const data = await res.json();
@@ -410,8 +481,8 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             datasetId: bundle.active_dataset.id,
-            subjectId: bundle.active_subject.id
-          })
+            subjectId: bundle.active_subject.id,
+          }),
         });
         if (res.ok && res.headers.get('content-type')?.includes('application/json')) {
           const data = await res.json();
@@ -445,18 +516,16 @@ export default function App() {
 
   if (!bundle) {
     return (
-      <div
-        style={{
-          height: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '15px',
-          gap: '12px'
-        }}
-      >
-        <span>CURRICULAB-CORE // INITIALIZING ANALYTICS ENGINE...</span>
+      <div className="min-h-screen bg-ivory flex items-center justify-center p-8">
+        <div className="border-2 border-ink bg-surface p-10 shadow-[8px_8px_0_#111]">
+          <div className="inline-flex items-center gap-2 bg-lime border border-ink px-3 py-1 font-mono text-xs font-bold uppercase mb-3">
+            <span className="w-2 h-2 bg-ink animate-ping"></span>
+            CURRICULAB // ENGINE INITIALIZING
+          </div>
+          <h2 className="font-display text-3xl font-bold text-ink">
+            Synthesizing Curriculum Telemetry…
+          </h2>
+        </div>
       </div>
     );
   }
@@ -470,6 +539,13 @@ export default function App() {
   const hardestTopic = [...bundle.topic_analytics].sort(
     (a, b) => b.difficulty_index - a.difficulty_index
   )[0];
+
+  const easiestTopics = [...bundle.topic_analytics].filter(
+    (t) => t.status === 'SURPLUS_MASTERY' || t.status === 'ON_TRACK'
+  );
+  const bottleneckTopics = [...bundle.topic_analytics].filter(
+    (t) => t.status === 'CRITICAL_GAP' || t.status === 'MODERATE_STRUGGLE'
+  );
 
   const filteredStudents = bundle.students_summary.filter((st) => {
     if (studentTierFilter !== 'ALL' && st.risk_tier !== studentTierFilter) return false;
@@ -489,402 +565,546 @@ export default function App() {
     null;
 
   const navItems = [
-    { id: 'dashboard', num: '01', label: lang === 'ru' ? 'Обзор' : 'Overview' },
-    {
-      id: 'diagnostics',
-      num: '02',
-      label: lang === 'ru' ? 'Сложные темы' : 'Learning Gaps'
-    },
-    {
-      id: 'textbooks',
-      num: '03',
-      label: lang === 'ru' ? 'Учебники' : 'Textbooks'
-    },
-    {
-      id: 'optimizer',
-      num: '04',
-      label: lang === 'ru' ? 'Часы (Оптимизатор)' : 'Hour Optimizer'
-    },
-    {
-      id: 'students',
-      num: '05',
-      label: lang === 'ru' ? 'Ученики' : 'Students'
-    },
-    {
-      id: 'ai',
-      num: '06',
-      label: lang === 'ru' ? 'ИИ-Методист' : 'Gemini AI'
-    },
-    {
-      id: 'reports',
-      num: '07',
-      label: lang === 'ru' ? 'Отчет УМО' : 'Reports'
-    },
-    {
-      id: 'datasets',
-      num: '08',
-      label: lang === 'ru' ? 'Данные (CSV)' : 'Datasets'
-    }
+    { id: 'dashboard', label: lang === 'ru' ? 'Overview' : 'Overview' },
+    { id: 'diagnostics', label: lang === 'ru' ? '01 Сложные темы' : '01 Learning Gaps' },
+    { id: 'textbooks', label: lang === 'ru' ? '02 Учебники' : '02 Textbooks' },
+    { id: 'optimizer', label: lang === 'ru' ? '03 Часы' : '03 Hour Optimizer' },
+    { id: 'students', label: lang === 'ru' ? '04 Ученики' : '04 Students' },
+    { id: 'ai', label: lang === 'ru' ? '05 ИИ-Методист' : '05 Gemini AI' },
+    { id: 'reports', label: lang === 'ru' ? '06 Отчет УМО' : '06 Reports' },
+    { id: 'datasets', label: lang === 'ru' ? '07 Данные (CSV)' : '07 Datasets' },
   ];
 
   return (
-    <div className="ieq-shell">
-      {/* 1. IEQ-Style Top Technical Telemetry Bar */}
-      <div className="ieq-telemetry-bar">
-        <div className="ieq-telemetry-left">
-          <span className="ieq-live-pill">
-            <span className="status-dot" />
-            CURRICULAB-CORE // SYSTEM ACTIVE
-          </span>
-          <span>•</span>
-          <span>
-            {bundle.active_dataset.is_synthetic
-              ? lang === 'ru'
-                ? 'РЕЖИМ: ДЕМОНСТРАЦИОННЫЕ СИНТЕТИЧЕСКИЕ ДАННЫЕ'
-                : 'MODE: SYNTHETIC DEMONSTRATION DATA'
-              : lang === 'ru'
-              ? 'РЕЖИМ: ЗАГРУЖЕННЫЕ ПОЛЬЗОВАТЕЛЬСКИЕ ДАННЫЕ'
-              : 'MODE: UPLOADED EMPIRICAL DATA'}
-          </span>
-          <span>•</span>
-          <span>
-            {kpis.total_students} {lang === 'ru' ? 'УЧЕНИКОВ' : 'STUDENTS'} /{' '}
-            {kpis.total_assessments} {lang === 'ru' ? 'ОЦЕНОК' : 'ASSESSMENTS'}
-          </span>
-        </div>
-
-        <div className="ieq-telemetry-right">
-          <span>GEMINI AI ENGINE: CONNECTED</span>
-          <button
-            onClick={() => setActiveTab('datasets')}
-            style={{
-              background: 'rgba(255,255,255,0.1)',
-              color: '#fff',
-              border: '1px solid rgba(255,255,255,0.2)',
-              borderRadius: '4px',
-              padding: '2px 8px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              cursor: 'pointer'
-            }}
-            id="banner-switch-dataset-btn"
-          >
-            {dict.uploadDatasetBtn} →
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Clean Top Horizontal Navigation Bar */}
-      <header className="ieq-navbar">
-        <div className="ieq-brand" onClick={() => setActiveTab('dashboard')}>
-          <span className="ieq-brand-box">DDC // AI</span>
-          <div>
-            <div className="ieq-brand-name">Data-Driven Curriculum</div>
+    <div className="flex flex-col min-h-screen bg-ivory text-ink">
+      {/* ==========================================
+          TOP NAVIGATION (Exact match to innovative hackaton.html)
+          ========================================== */}
+      <header className="border-b-2 border-ink bg-ivory/95 backdrop-blur-sm sticky top-0 z-40 no-print">
+        <div className="max-w-7xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between gap-4">
+          {/* Logo */}
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setActiveTab('dashboard')}
+              className="font-condensed text-3xl tracking-wider text-ink hover:opacity-80 transition-opacity flex items-center gap-2"
+            >
+              <span>CURRICULAB</span>
+              <span className="w-2 h-2 bg-lime border border-ink inline-block"></span>
+            </button>
+            <span className="hidden xl:inline-block font-mono text-[10px] uppercase tracking-widest text-subtle border-l border-ink/20 pl-3 whitespace-nowrap">
+              {lang === 'ru' ? 'ИИ-Аналитика учебных программ' : 'Data-Driven Curriculum Lab'}
+            </span>
           </div>
-        </div>
 
-        <nav className="ieq-nav-links">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              id={`nav-tab-${item.id}`}
-              className={`ieq-nav-btn ${activeTab === item.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(item.id)}
-            >
-              <span className="nav-num">{item.num}</span>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
+          {/* Desktop Navigation Links — Single-line, zero wrapping */}
+          <nav className="hidden lg:flex items-center gap-1 font-mono text-[11px] uppercase tracking-wider shrink-0">
+            {navItems.map((item) => {
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  id={`nav-tab-${item.id}`}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`whitespace-nowrap px-2.5 py-1.5 transition-all ${
+                    isActive
+                      ? 'bg-ink text-ivory font-bold'
+                      : 'text-subtle hover:text-ink hover:bg-sand/60'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div className="lang-switch" id="language-switcher">
+          {/* Direct CTA & Language Toggle */}
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center border border-ink bg-surface font-mono text-[11px] font-bold">
+              <button
+                onClick={() => setLang('ru')}
+                className={`px-2 py-1.5 ${lang === 'ru' ? 'bg-lime text-ink' : 'text-subtle hover:text-ink'}`}
+              >
+                RU
+              </button>
+              <button
+                onClick={() => setLang('en')}
+                className={`px-2 py-1.5 border-l border-ink ${lang === 'en' ? 'bg-lime text-ink' : 'text-subtle hover:text-ink'}`}
+              >
+                EN
+              </button>
+            </div>
+
             <button
-              className={`lang-btn ${lang === 'ru' ? 'active' : ''}`}
-              onClick={() => setLang('ru')}
+              onClick={() => setAiDrawerOpen(true)}
+              id="open-ai-drawer-btn"
+              className="hidden sm:inline-flex items-center gap-2 bg-ink text-ivory hover:bg-black font-mono text-[11px] font-bold uppercase tracking-wider px-4 py-2 border border-ink transition-all whitespace-nowrap group"
             >
-              RU
+              <span>{dict.askGeminiBtn}</span>
+              <span className="text-lime group-hover:translate-x-0.5 transition-transform">→</span>
             </button>
+
+            {/* Mobile hamburger */}
             <button
-              className={`lang-btn ${lang === 'en' ? 'active' : ''}`}
-              onClick={() => setLang('en')}
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="lg:hidden p-2 text-ink border border-ink/30"
+              aria-label="Toggle menu"
             >
-              EN
+              <div className="w-5 h-3.5 flex flex-col justify-between">
+                <span className={`h-0.5 bg-ink w-full transition-transform ${mobileMenuOpen ? 'rotate-45 translate-y-1.5' : ''}`}></span>
+                <span className={`h-0.5 bg-ink w-full ${mobileMenuOpen ? 'opacity-0' : ''}`}></span>
+                <span className={`h-0.5 bg-ink w-full transition-transform ${mobileMenuOpen ? '-rotate-45 -translate-y-1.5' : ''}`}></span>
+              </div>
             </button>
           </div>
-
-          <button
-            className="btn btn-primary btn-sm"
-            onClick={() => setAiDrawerOpen(true)}
-            id="open-ai-drawer-btn"
-          >
-            <Sparkles size={14} />
-            <span>{dict.askGeminiBtn}</span>
-          </button>
         </div>
-      </header>
 
-      {/* 3. Architectural Filter Context Bar */}
-      <div className="ieq-context-bar">
-        <div className="filter-toolbar">
-          <div className="filter-group">
-            <span className="filter-label">01 // {dict.filterSubject}:</span>
-            <select
-              className="filter-select"
-              id="global-subject-select"
-              value={activeSubject.id}
-              onChange={(e) => handleSubjectChange(e.target.value)}
-            >
-              {bundle.subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {lang === 'ru' ? s.name_ru : s.name_en}
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Sub-Header Filter Strip (Subject, Class, Textbook & Dataset Dossier Selector) */}
+        <div className="border-t-2 border-ink bg-surface px-5 md:px-8 py-2.5">
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3 font-mono text-[11px]">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Subject Select */}
+              <div className="flex items-center gap-1.5">
+                <span className="uppercase text-subtle font-bold">01 // {dict.filterSubject}:</span>
+                <select
+                  id="global-subject-select"
+                  value={activeSubject.id}
+                  onChange={(e) => handleSubjectChange(e.target.value)}
+                  className="bg-ivory border border-ink px-2.5 py-1 font-mono text-[11px] font-bold text-ink focus:outline-none"
+                >
+                  {bundle.subjects.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {lang === 'ru' ? s.name_ru : s.name_en}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div className="filter-group">
-            <span className="filter-label">02 // {dict.filterClass}:</span>
-            <select
-              className="filter-select"
-              id="global-class-select"
-              value={classId}
-              onChange={(e) => setClassId(e.target.value)}
-            >
-              <option value="ALL">{dict.allClasses}</option>
-              {bundle.classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.student_count})
-                </option>
-              ))}
-            </select>
-          </div>
+              {/* Class Select */}
+              <div className="flex items-center gap-1.5">
+                <span className="uppercase text-subtle font-bold">02 // {dict.filterClass}:</span>
+                <select
+                  id="global-class-select"
+                  value={classId}
+                  onChange={(e) => setClassId(e.target.value)}
+                  className="bg-ivory border border-ink px-2.5 py-1 font-mono text-[11px] font-bold text-ink focus:outline-none"
+                >
+                  <option value="ALL">{dict.allClasses}</option>
+                  {bundle.classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.student_count})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div className="filter-group">
-            <span className="filter-label">03 // {dict.filterTextbook}:</span>
-            <select
-              className="filter-select"
-              id="global-textbook-select"
-              value={textbookId}
-              onChange={(e) => setTextbookId(e.target.value)}
-            >
-              <option value="ALL">{dict.allTextbooks}</option>
-              {bundle.textbooks.map((tb) => (
-                <option key={tb.id} value={tb.id}>
-                  {tb.publisher} ({tb.code})
-                </option>
-              ))}
-            </select>
-          </div>
+              {/* Textbook Select */}
+              <div className="flex items-center gap-1.5">
+                <span className="uppercase text-subtle font-bold">03 // {dict.filterTextbook}:</span>
+                <select
+                  id="global-textbook-select"
+                  value={textbookId}
+                  onChange={(e) => setTextbookId(e.target.value)}
+                  className="bg-ivory border border-ink px-2.5 py-1 font-mono text-[11px] font-bold text-ink focus:outline-none"
+                >
+                  <option value="ALL">{dict.allTextbooks}</option>
+                  {bundle.textbooks.map((tb) => (
+                    <option key={tb.id} value={tb.id}>
+                      {tb.publisher} ({tb.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div className="filter-group">
-            <span className="filter-label">04 // {dict.filterDataset}:</span>
-            <select
-              className="filter-select"
-              id="global-dataset-select"
-              value={bundle.active_dataset.id}
-              onChange={(e) => handleDatasetSwitch(e.target.value)}
+              {/* Dataset Select */}
+              <div className="flex items-center gap-1.5">
+                <span className="uppercase text-subtle font-bold">04 // {dict.filterDataset}:</span>
+                <select
+                  id="global-dataset-select"
+                  value={bundle.active_dataset.id}
+                  onChange={(e) => handleDatasetSwitch(e.target.value)}
+                  className="bg-ivory border border-ink px-2.5 py-1 font-mono text-[11px] font-bold text-ink focus:outline-none"
+                >
+                  {bundle.datasets.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.is_synthetic ? '[DEMO] ' : '[CSV] '}
+                      {lang === 'ru' ? d.name_ru : d.name_en}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setActiveTab('datasets')}
+              id="banner-switch-dataset-btn"
+              className="inline-flex items-center gap-1.5 bg-lime border border-ink px-2.5 py-1 font-mono text-[10px] font-bold uppercase text-ink hover:bg-ink hover:text-ivory transition-colors"
             >
-              {bundle.datasets.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.is_synthetic ? '[DEMO] ' : '[CSV] '}
-                  {lang === 'ru' ? d.name_ru : d.name_en}
-                </option>
-              ))}
-            </select>
+              <span className="w-2 h-2 bg-ink inline-block"></span>
+              <span>
+                {bundle.active_dataset.is_synthetic
+                  ? lang === 'ru'
+                    ? 'ДЕМО-ДАННЫЕ (ЗАГРУЗИТЬ CSV →)'
+                    : 'SYNTHETIC DEMO DATA (UPLOAD CSV →)'
+                  : lang === 'ru'
+                  ? 'ПОЛЬЗОВАТЕЛЬСКИЙ CSV АКТИВЕН'
+                  : 'CUSTOM CSV ACTIVE'}
+              </span>
+            </button>
           </div>
         </div>
-      </div>
 
-      {/* Main Content Container */}
-      <main className="page-content">
-        {saveToast && (
-          <div
-            style={{
-              padding: '14px 18px',
-              borderRadius: '8px',
-              background: 'var(--status-success-bg)',
-              border: '1px solid var(--status-success-border)',
-              color: 'var(--status-success)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px',
-              fontWeight: 600
-            }}
-          >
-            <CheckCircle2 size={18} />
-            <span>{saveToast}</span>
+        {/* Mobile Drawer */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden border-t-2 border-ink bg-ivory px-6 py-5 space-y-4">
+            <div className="flex flex-col space-y-2 font-mono text-xs uppercase tracking-wider">
+              {navItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`text-left py-2 px-3 ${
+                    activeTab === item.id ? 'font-bold bg-ink text-ivory' : 'text-subtle border-b border-ink/10'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
           </div>
         )}
+      </header>
 
-        {/* ==================== 01 OVERVIEW (IEQ-STYLE EDITORIAL DASHBOARD) ==================== */}
-        {activeTab === 'dashboard' && (
-          <>
-            {/* IEQ-Style Hero + System Map */}
-            <section className="ieq-hero">
-              <div>
-                <div className="ieq-eyebrow">
-                  <span>01 // EXECUTIVE OVERVIEW</span>
-                  <span>•</span>
-                  <span>{activeSubject.code}</span>
-                  <span>•</span>
-                  <span>{activeSubject.total_planned_hours} HOURS / YEAR</span>
-                </div>
+      {/* ==========================================
+          OVERVIEW TAB (Exact Hero, BUILD/BREAK Card & 3-Step Pipeline of innovative hackaton.html)
+          ========================================== */}
+      {activeTab === 'dashboard' && (
+        <div>
+          {/* 1. Main Hero Section */}
+          <section className="max-w-7xl mx-auto px-6 md:px-10 pt-10 md:pt-16 pb-14">
+            {/* Superhead Status Pill */}
+            <div className="inline-flex items-center gap-2.5 border border-ink bg-surface px-3.5 py-1.5 mb-8 shadow-[2px_2px_0_#111]">
+              <span className="w-2 h-2 bg-lime border border-ink"></span>
+              <span className="font-mono text-[11px] uppercase tracking-widest text-ink font-bold">
+                {lang === 'ru'
+                  ? `DATA-DRIVEN CURRICULUM // ${activeSubject.code} (${activeSubject.total_planned_hours} Ч/ГОД)`
+                  : `DATA-DRIVEN CURRICULUM // ${activeSubject.code} (${activeSubject.total_planned_hours} HRS/YR)`}
+              </span>
+            </div>
 
-                <h1 className="ieq-hero-title">
-                  {lang === 'ru'
-                    ? 'Анализ. Сравнение. Оптимизация. Решения на основе данных.'
-                    : 'Analyze. Compare. Optimize. Decisions Built on Real Results.'}
+            {/* Two-Column Asymmetric Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+              {/* Left Column: Bold Editorial Headline & Thesis */}
+              <div className="lg:col-span-7">
+                <h1 className="font-display text-4xl sm:text-5xl md:text-6xl lg:text-[4.15rem] font-bold text-ink leading-[1.03] tracking-tight mb-6">
+                  {lang === 'ru' ? (
+                    <>
+                      Учебным программам не нужны мнения.{' '}
+                      <span className="bg-lime px-2 border border-ink inline-block mt-1">
+                        Им нужны точные данные.
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      Curriculum decisions don’t need opinions.{' '}
+                      <span className="bg-lime px-2 border border-ink inline-block mt-1">
+                        They need measurable data.
+                      </span>
+                    </>
+                  )}
                 </h1>
 
-                <p className="ieq-hero-lead">
+                <p className="font-sans text-base md:text-xl text-ink/80 max-w-2xl font-normal leading-relaxed mb-8">
                   {lang === 'ru' ? (
                     <>
                       По предмету <strong>«{activeSubject.name_ru}»</strong> проанализировано{' '}
-                      <strong>{kpis.total_assessments} работ</strong> ({kpis.total_students} учеников).
-                      Выявлено <strong>{kpis.critical_topics_count} критически сложных раздела</strong>{' '}
-                      (самая трудная тема — <strong>{hardestTopic?.title_ru}</strong> со средним баллом{' '}
-                      <strong>{hardestTopic?.mean_score}%</strong>). Лучший результат показывает учебник{' '}
-                      <strong>{kpis.top_textbook?.title_ru}</strong>. Перераспределение{' '}
-                      <strong>{kpis.hours_reallocated} часов</strong> внутри годового плана повысит усвоение
-                      на <strong>+{kpis.projected_mastery_gain}%</strong>.
+                      <strong>{kpis.total_assessments} работ</strong> ({kpis.total_students} учеников). Выявлено{' '}
+                      <strong>{kpis.critical_topics_count} критически сложных раздела</strong> (самая трудная тема —{' '}
+                      <strong>{hardestTopic?.title_ru}</strong>, средний балл <strong>{hardestTopic?.mean_score}%</strong>).
+                      Лучший результат показывает учебник <strong>{kpis.top_textbook?.title_ru}</strong>. Перераспределение{' '}
+                      <strong>{kpis.hours_reallocated} часов</strong> повысит усвоение на{' '}
+                      <strong>+{kpis.projected_mastery_gain}%</strong>.
                     </>
                   ) : (
                     <>
                       Across <strong>{activeSubject.name_en}</strong>, we analyzed{' '}
-                      <strong>{kpis.total_assessments} assessments</strong> ({kpis.total_students} students).
-                      We identified <strong>{kpis.critical_topics_count} critical bottleneck topics</strong>{' '}
-                      (hardest unit: <strong>{hardestTopic?.title_en}</strong> at{' '}
-                      <strong>{hardestTopic?.mean_score}%</strong> average). The top-performing textbook is{' '}
-                      <strong>{kpis.top_textbook?.title_en}</strong>. Shifting{' '}
-                      <strong>{kpis.hours_reallocated} teaching hours</strong> from mastered units lifts overall
-                      mastery by <strong>+{kpis.projected_mastery_gain}%</strong>.
+                      <strong>{kpis.total_assessments} assessments</strong> ({kpis.total_students} students). We identified{' '}
+                      <strong>{kpis.critical_topics_count} critical bottleneck topics</strong> (hardest unit:{' '}
+                      <strong>{hardestTopic?.title_en}</strong> at <strong>{hardestTopic?.mean_score}%</strong> mean). The
+                      top-performing textbook is <strong>{kpis.top_textbook?.title_en}</strong>. Shifting{' '}
+                      <strong>{kpis.hours_reallocated} teaching hours</strong> lifts mastery by{' '}
+                      <strong>+{kpis.projected_mastery_gain}%</strong>.
                     </>
                   )}
                 </p>
 
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                <div className="flex flex-wrap items-center gap-4 mb-10">
                   <button
-                    className="btn btn-primary"
                     onClick={() => setActiveTab('optimizer')}
                     id="dashboard-goto-optimizer-btn"
+                    className="bg-ink text-ivory hover:bg-black font-mono text-xs md:text-sm font-bold uppercase tracking-wider px-7 py-4 border-2 border-ink shadow-[4px_4px_0_#C8FF2E] flex items-center gap-3 transition-transform active:translate-y-0.5"
                   >
-                    <Clock size={16} />
-                    {lang === 'ru'
-                      ? `Перераспределить часы (${kpis.hours_reallocated} ч)`
-                      : `Optimize Teaching Hours (${kpis.hours_reallocated}h)`}
-                    <ArrowRight size={15} />
+                    <span>
+                      {lang === 'ru'
+                        ? `Перераспределить часы (${kpis.hours_reallocated} ч)`
+                        : `Optimize Teaching Hours (${kpis.hours_reallocated}h)`}
+                    </span>
+                    <span className="text-lime font-bold">→</span>
                   </button>
+
                   <button
-                    className="btn btn-secondary"
-                    onClick={() =>
-                      handleRunStructuredAnalysis('executive_summary', null, true)
-                    }
+                    onClick={() => handleRunStructuredAnalysis('executive_summary', null, true)}
                     id="dashboard-ai-summary-btn"
+                    className="bg-surface hover:bg-sand font-mono text-xs md:text-sm font-bold uppercase tracking-wider text-ink border-2 border-ink px-6 py-4 transition-colors"
                   >
-                    <Sparkles size={16} />
-                    {lang === 'ru'
-                      ? 'Объяснить выводы с помощью Gemini AI'
-                      : 'Explain Findings with Gemini AI'}
+                    {lang === 'ru' ? 'Объяснить выводы (Gemini AI)' : 'Explain Findings (Gemini AI)'}
                   </button>
+                </div>
+
+                {/* Quick Metric Strip */}
+                <div className="grid grid-cols-3 gap-4 border-t border-ink/20 pt-6 max-w-xl">
+                  <div>
+                    <div className="font-condensed text-3xl text-ink">{kpis.overall_mean_score}%</div>
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                      {lang === 'ru' ? `Средний балл (σ=${kpis.overall_std_dev}%)` : `Mean Mastery (σ=${kpis.overall_std_dev}%)`}
+                    </div>
+                  </div>
+                  <div className="border-l border-ink/20 pl-4">
+                    <div className="font-condensed text-3xl text-violet">{kpis.struggle_rate_pct}%</div>
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                      {lang === 'ru' ? 'Группа риска (<55%)' : 'Struggle Rate (<55%)'}
+                    </div>
+                  </div>
+                  <div className="border-l border-ink/20 pl-4">
+                    <div className="font-condensed text-3xl text-ink">+{kpis.projected_mastery_gain}%</div>
+                    <div className="font-mono text-[10px] uppercase tracking-wider text-subtle">
+                      {lang === 'ru' ? `Рост при сдвиге ${kpis.hours_reallocated} ч` : `Lift via ${kpis.hours_reallocated}h Shift`}
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* IEQ-CORE // SYSTEM MAP Card */}
-              <div className="ieq-system-card">
-                <div className="ieq-system-header">
-                  <span>CURRICULAB-CORE // SYSTEM MAP</span>
-                  <span>{activeSubject.code} · ACTIVE</span>
-                </div>
+              {/* Right Column: Framed Architectural BUILD / BREAK Style Dossier Card */}
+              <div className="lg:col-span-5 select-none">
+                <div className="border-2 border-ink bg-surface p-6 md:p-8 shadow-[8px_8px_0_#111111]">
+                  <div className="flex items-center justify-between border-b border-ink/20 pb-3 mb-6 font-mono text-[10px] uppercase tracking-widest text-subtle">
+                    <span>CURRICULUM DIALECTIC // {activeSubject.code}</span>
+                    <span className="text-ink font-bold flex items-center gap-1.5">
+                      <span className="w-2 h-2 bg-lime border border-ink"></span>
+                      ACTIVE
+                    </span>
+                  </div>
 
-                <div className="ieq-step-list">
-                  <button
-                    className="ieq-step-item"
-                    onClick={() => setActiveTab('diagnostics')}
-                  >
-                    <span className="ieq-step-num">01 // DIAGNOSE</span>
-                    <div className="ieq-step-title">
-                      {lang === 'ru' ? 'Сложные темы' : 'Learning Gaps'}
-                    </div>
-                    <div className="ieq-step-desc">
-                      {kpis.critical_topics_count}{' '}
-                      {lang === 'ru'
-                        ? 'критических пробелов в знаниях'
-                        : 'critical bottleneck units'}
-                    </div>
-                  </button>
-
-                  <button
-                    className="ieq-step-item"
-                    onClick={() => setActiveTab('textbooks')}
-                  >
-                    <span className="ieq-step-num">02 // BENCHMARK</span>
-                    <div className="ieq-step-title">
-                      {lang === 'ru' ? 'Сравнение учебников' : 'Compare Textbooks'}
-                    </div>
-                    <div className="ieq-step-desc">
-                      {bundle.textbooks.length}{' '}
-                      {lang === 'ru'
-                        ? 'учебников оценено по результатам'
-                        : 'textbooks ranked by outcomes'}
-                    </div>
-                  </button>
-
-                  <button
-                    className="ieq-step-item"
+                  {/* TOP BLOCK: OPTIMIZE / BUILD */}
+                  <div
                     onClick={() => setActiveTab('optimizer')}
+                    className="cursor-pointer flex items-center justify-between gap-4 bg-ivory border border-ink p-4 hover:bg-sand/50 transition-colors"
                   >
-                    <span className="ieq-step-num">03 // OPTIMIZE</span>
-                    <div className="ieq-step-title">
-                      {lang === 'ru' ? 'Сетка учебных часов' : 'Redistribute Hours'}
+                    <div>
+                      <span className="inline-block bg-lime border border-ink px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-ink mb-1">
+                        SIGNAL 01 // SOLUTION
+                      </span>
+                      <div className="font-condensed text-6xl sm:text-7xl text-ink leading-none">
+                        SHIFT
+                      </div>
                     </div>
-                    <div className="ieq-step-desc">
-                      {kpis.hours_reallocated}h{' '}
-                      {lang === 'ru'
-                        ? `перераспределено (+${kpis.projected_mastery_gain}%)`
-                        : `reallocated (+${kpis.projected_mastery_gain}% lift)`}
+                    <div className="text-right max-w-[175px]">
+                      <span className="font-mono text-xs font-bold text-ink block mb-1">
+                        {lang === 'ru' ? `${kpis.hours_reallocated} ч перераспределено` : `${kpis.hours_reallocated} Hours Reallocated`}
+                      </span>
+                      <span className="font-sans text-xs text-subtle block leading-snug">
+                        {lang === 'ru'
+                          ? `Учебник-лидер: ${kpis.top_textbook?.title_ru} (${kpis.top_textbook?.composite_efficacy}/100).`
+                          : `Top textbook: ${kpis.top_textbook?.title_en} (${kpis.top_textbook?.composite_efficacy}/100).`}
+                      </span>
                     </div>
-                  </button>
+                  </div>
 
-                  <button
-                    className="ieq-step-item"
-                    onClick={() => setActiveTab('reports')}
+                  {/* Horizontal dividing friction bar */}
+                  <div className="relative my-5 flex items-center justify-center">
+                    <div className="w-full h-[2px] bg-ink"></div>
+                    <span className="absolute bg-ink text-ivory font-mono text-[10px] uppercase tracking-widest px-3 py-0.5 border border-ink">
+                      VS // CURRICULUM FRICTION
+                    </span>
+                  </div>
+
+                  {/* BOTTOM BLOCK: GAPS / BREAK */}
+                  <div
+                    onClick={() => setActiveTab('diagnostics')}
+                    className="challenger-zone cursor-pointer flex items-center justify-between gap-4 bg-ivory border border-ink p-4 hover:bg-sand/50 transition-colors"
                   >
-                    <span className="ieq-step-num">04 // REPORT</span>
-                    <div className="ieq-step-title">
-                      {lang === 'ru' ? 'Решение для УМО' : 'Decision Report'}
+                    <div className="text-left max-w-[175px]">
+                      <span className="font-mono text-xs font-bold text-violet block mb-1">
+                        {lang === 'ru' ? hardestTopic?.title_ru : hardestTopic?.title_en}
+                      </span>
+                      <span className="font-sans text-xs text-subtle block leading-snug">
+                        {lang === 'ru'
+                          ? `${hardestTopic?.struggle_rate}% учеников <55% · Средний балл ${hardestTopic?.mean_score}%.`
+                          : `${hardestTopic?.struggle_rate}% students <55% · Mean score ${hardestTopic?.mean_score}%.`}
+                      </span>
                     </div>
-                    <div className="ieq-step-desc">
-                      {lang === 'ru'
-                        ? 'Экспорт таблиц и вердикта Gemini'
-                        : 'Export tables & Gemini verdict'}
+                    <div className="text-right">
+                      <span className="inline-block bg-violet text-ivory border border-ink px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider mb-1">
+                        SIGNAL 02 // BOTTLENECK
+                      </span>
+                      <div className="font-condensed text-6xl sm:text-7xl text-ink leading-none">
+                        GAPS
+                      </div>
                     </div>
-                  </button>
-                </div>
+                  </div>
 
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '11px',
-                    color: 'var(--text-on-dark-muted)',
-                    paddingTop: '8px',
-                    borderTop: '1px solid var(--border-dark)'
-                  }}
-                >
-                  <span>NO SUBJECTIVE GUESSWORK</span>
-                  <span>MEASURABLE OUTCOMES ONLY</span>
+                  {/* Card Footer */}
+                  <div className="mt-6 pt-4 border-t border-ink/20 flex items-center justify-between font-mono text-[11px] text-subtle uppercase">
+                    <span>
+                      {lang === 'ru'
+                        ? `${kpis.critical_topics_count} критических тем выявлено`
+                        : `${kpis.critical_topics_count} Critical Bottlenecks`}
+                    </span>
+                    <button
+                      onClick={() => setActiveTab('diagnostics')}
+                      className="text-ink font-bold underline hover:text-violet"
+                    >
+                      {lang === 'ru' ? 'Открыть диагностику →' : 'Inspect Gaps →'}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </section>
+            </div>
+          </section>
 
-            {/* 5 Clean Architectural KPIs */}
+          {/* 2. Three Numbered Steps Section (Exact match to innovative hackaton.html) */}
+          <section className="border-t-2 border-ink bg-surface">
+            <div className="max-w-7xl mx-auto px-6 md:px-10 py-14">
+              <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+                <div>
+                  <span className="font-mono text-xs uppercase tracking-widest text-subtle block mb-1">
+                    {lang === 'ru' ? 'Как работает CURRICULAB' : 'How CURRICULAB Works'}
+                  </span>
+                  <h2 className="font-display text-2xl md:text-3xl font-bold text-ink tracking-tight">
+                    {lang === 'ru'
+                      ? 'От сырых результатов тестирования до оптимального учебного плана за 3 шага'
+                      : 'From raw student test scores to an optimized curriculum in 3 steps'}
+                  </h2>
+                </div>
+                <span className="font-mono text-xs uppercase text-subtle">
+                  {lang === 'ru' ? '3-этапный конвейер методиста' : '3-Stage Methodological Pipeline'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 border-2 border-ink bg-ivory shadow-[6px_6px_0_#111]">
+                {/* Step 01 */}
+                <div
+                  onClick={() => setActiveTab('diagnostics')}
+                  className="p-8 flex flex-col justify-between border-b md:border-b-0 md:border-r-2 border-ink cursor-pointer hover:bg-surface transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="font-condensed text-4xl text-ink">01</span>
+                      <span className="font-mono text-[10px] uppercase px-2 py-0.5 bg-sand border border-ink/30 font-bold">
+                        {lang === 'ru' ? 'Сложные темы' : 'Learning Gaps'}
+                      </span>
+                    </div>
+                    <h3 className="font-display text-2xl font-bold text-ink mb-3 tracking-tight">
+                      {lang === 'ru' ? 'Выявите проблемные разделы' : 'Diagnose struggling units'}
+                    </h3>
+                    <p className="font-sans text-sm text-subtle leading-relaxed">
+                      {lang === 'ru'
+                        ? 'Автоматический расчет индекса трудности (LDI), доли отстающих (<55%) и тепловой карты Классы × Темы программы.'
+                        : 'Automatically compute Learning Difficulty Index (LDI), struggle rates (<55%), and the Class × Topic mastery heatmap.'}
+                    </p>
+                  </div>
+                  <div className="mt-8 pt-4 border-t border-ink/15 flex items-center justify-between font-mono text-[11px] text-ink/70">
+                    <span>{bundle.topic_analytics.length} Units Audited</span>
+                    <span className="font-bold text-ink">
+                      {lang === 'ru' ? 'Открыть темы →' : 'Open Diagnostics →'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Step 02 */}
+                <div
+                  onClick={() => setActiveTab('textbooks')}
+                  className="p-8 flex flex-col justify-between bg-surface border-b md:border-b-0 md:border-r-2 border-ink cursor-pointer hover:bg-ivory transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="font-condensed text-4xl text-ink">02</span>
+                      <span className="font-mono text-[10px] uppercase px-2 py-0.5 bg-lime border border-ink font-bold">
+                        {lang === 'ru' ? 'Учебники' : 'Textbook Benchmark'}
+                      </span>
+                    </div>
+                    <h3 className="font-display text-2xl font-bold text-ink mb-3 tracking-tight">
+                      {lang === 'ru' ? 'Сравните учебники объективно' : 'Compare textbooks fairly'}
+                    </h3>
+                    <p className="font-sans text-sm text-subtle leading-relaxed">
+                      {lang === 'ru'
+                        ? 'Оценка эффективности учебников с поправкой на исходный уровень классов (Value-Added) и полноту покрытия стандарта.'
+                        : 'Evaluate textbooks controlling for baseline class aptitude (Value-Added score), Cohen’s d effect size, and syllabus coverage.'}
+                    </p>
+                  </div>
+                  <div className="mt-8 pt-4 border-t border-ink/15 flex items-center justify-between font-mono text-[11px] text-ink/70">
+                    <span>{bundle.textbooks.length} Editions Compared</span>
+                    <span className="text-violet font-bold">
+                      {lang === 'ru' ? 'Сравнить учебники →' : 'Compare Textbooks →'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Step 03 */}
+                <div
+                  onClick={() => setActiveTab('optimizer')}
+                  className="p-8 flex flex-col justify-between cursor-pointer hover:bg-surface transition-colors"
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="font-condensed text-4xl text-ink">03</span>
+                      <span className="font-mono text-[10px] uppercase px-2 py-0.5 bg-ink text-ivory">
+                        {lang === 'ru' ? 'Оптимизатор + ИИ' : 'Optimizer + AI Brief'}
+                      </span>
+                    </div>
+                    <h3 className="font-display text-2xl font-bold text-ink mb-3 tracking-tight">
+                      {lang === 'ru' ? 'Перераспределите часы' : 'Reallocate teaching hours'}
+                    </h3>
+                    <p className="font-sans text-sm text-subtle leading-relaxed">
+                      {lang === 'ru'
+                        ? 'Перенесите часы с простых тем (≥80%) на сложные разделы в рамках годового бюджета и выгрузите отчет УМО с Gemini AI.'
+                        : 'Shift hours from mastered units (≥80%) to critical bottlenecks within your annual budget and export a Gemini AI decision report.'}
+                    </p>
+                  </div>
+                  <div className="mt-8 pt-4 border-t border-ink/15 flex items-center justify-between font-mono text-[11px] text-ink/70">
+                    <span>Export: Markdown, CSV & PDF</span>
+                    <span className="text-ink font-bold">
+                      {lang === 'ru' ? 'Запустить оптимизатор →' : 'Open Optimizer →'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ==========================================
+          MAIN CONTENT CONTAINER (All 8 Functional Tabs Preserved 100%)
+          ========================================== */}
+      <main className="page-content">
+        {saveToast && (
+          <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-ink text-ivory px-5 py-3 border-2 border-ink shadow-[4px_4px_0_#C8FF2E]">
+            <span className="w-2.5 h-2.5 bg-lime border border-ink"></span>
+            <span className="font-mono text-xs uppercase tracking-wider">{saveToast}</span>
+          </div>
+        )}
+
+        {/* ==================== 01 OVERVIEW DETAILS (KPIs, Topic Breakdown, Topic Inspector, Heatmap) ==================== */}
+        {activeTab === 'dashboard' && (
+          <>
+            {/* 5 Clean Brutalist KPIs */}
             <div className="kpi-grid">
               <div className="kpi-card">
                 <div className="kpi-card-top">
                   <span>01 // {dict.kpiMeanMastery}</span>
-                  <span>ACTIVE</span>
+                  <span className="bg-lime px-1.5 border border-ink text-ink">ACTIVE</span>
                 </div>
                 <div className="kpi-value-row">
                   <span className="kpi-value">{kpis.overall_mean_score}%</span>
@@ -899,10 +1119,10 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="kpi-card">
+              <div className="kpi-card challenger-zone">
                 <div className="kpi-card-top">
                   <span>02 // {dict.kpiStruggleRate}</span>
-                  <span style={{ color: 'var(--status-critical)' }}>RISK</span>
+                  <span className="bg-violet text-ivory px-1.5 border border-ink">RISK</span>
                 </div>
                 <div className="kpi-value-row">
                   <span className="kpi-value" style={{ color: 'var(--status-critical)' }}>
@@ -925,7 +1145,7 @@ export default function App() {
                   <span className="kpi-value" style={{ color: 'var(--status-critical)' }}>
                     {kpis.critical_topics_count}
                   </span>
-                  <span style={{ fontSize: '13px', color: 'var(--status-warning)', fontWeight: 700 }}>
+                  <span className="mono" style={{ fontSize: '12px', fontWeight: 700 }}>
                     + {kpis.moderate_topics_count} {lang === 'ru' ? 'сложных' : 'moderate'}
                   </span>
                 </div>
@@ -939,37 +1159,118 @@ export default function App() {
               <div className="kpi-card">
                 <div className="kpi-card-top">
                   <span>04 // {dict.kpiBestTextbook}</span>
-                  <span style={{ color: 'var(--accent-teal)' }}>LEADER</span>
+                  <span className="bg-lime px-1.5 border border-ink text-ink">LEADER</span>
                 </div>
-                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '16px', lineHeight: 1.25 }}>
-                  {lang === 'ru'
-                    ? kpis.top_textbook?.title_ru
-                    : kpis.top_textbook?.title_en}
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '17px', lineHeight: 1.25 }}>
+                  {lang === 'ru' ? kpis.top_textbook?.title_ru : kpis.top_textbook?.title_en}
                 </div>
                 <div className="kpi-footnote">
                   {lang === 'ru' ? 'Рейтинг эффективности:' : 'Efficacy Index:'}{' '}
                   <strong className="mono">{kpis.top_textbook?.composite_efficacy}/100</strong> (
                   {kpis.top_textbook?.value_added_delta >= 0 ? '+' : ''}
-                  {kpis.top_textbook?.value_added_delta}%{' '}
-                  {lang === 'ru' ? 'к результату' : 'value-added'})
+                  {kpis.top_textbook?.value_added_delta}% {lang === 'ru' ? 'к результату' : 'value-added'})
                 </div>
               </div>
 
               <div className="kpi-card">
                 <div className="kpi-card-top">
                   <span>05 // {dict.kpiOptimizationLift}</span>
-                  <span style={{ color: 'var(--status-success)' }}>OPTIMIZED</span>
+                  <span className="bg-lime px-1.5 border border-ink text-ink">OPTIMIZED</span>
                 </div>
                 <div className="kpi-value-row">
-                  <span className="kpi-value" style={{ color: 'var(--status-success)' }}>
-                    +{kpis.projected_mastery_gain}%
-                  </span>
+                  <span className="kpi-value">+{kpis.projected_mastery_gain}%</span>
                 </div>
                 <div className="kpi-footnote">
                   {lang === 'ru'
                     ? `При перераспределении ${kpis.hours_reallocated} ч в пользу трудных тем`
                     : `Expected gain from shifting ${kpis.hours_reallocated}h to struggling units`}
                 </div>
+              </div>
+            </div>
+
+            {/* Opposing Verdict Columns: Mastered Donor Topics vs Lethal Bottleneck Topics */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left: Validated Strengths / Donor Units */}
+              <div className="bg-surface border-2 border-ink p-7 shadow-[4px_4px_0_#111]">
+                <div className="flex items-center justify-between border-b border-ink/15 pb-4 mb-5">
+                  <div>
+                    <span className="font-mono text-[11px] uppercase tracking-widest text-subtle block">
+                      {lang === 'ru' ? 'Сильные стороны // Доноры учебных часов' : 'Validated Strengths // Hour Donor Units'}
+                    </span>
+                    <h4 className="font-display text-2xl font-bold text-ink mt-0.5">
+                      {lang === 'ru' ? 'Успешно усвоенные темы' : 'High-Mastery Curriculum Units'}
+                    </h4>
+                  </div>
+                  <span className="px-2.5 py-1 bg-lime text-ink font-mono text-xs font-bold uppercase tracking-wider border border-ink">
+                    {lang === 'ru' ? 'Норма / Профицит' : 'Mastered'}
+                  </span>
+                </div>
+                <ul className="space-y-3 font-sans text-sm text-ink/90">
+                  {easiestTopics.slice(0, 3).map((t, i) => (
+                    <li
+                      key={t.code}
+                      onClick={() => setSelectedTopicCode(t.code)}
+                      className="flex items-start justify-between gap-3 p-3 bg-ivory border border-ink/25 hover:border-ink cursor-pointer"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="font-mono text-xs font-bold bg-lime border border-ink px-1.5 py-0.5 text-ink shrink-0">
+                          0{i + 1}
+                        </span>
+                        <div>
+                          <div className="font-bold text-ink">
+                            [{t.code}] {lang === 'ru' ? t.title_ru : t.title_en}
+                          </div>
+                          <div className="font-mono text-[11px] text-subtle mt-0.5">
+                            {t.planned_hours}h planned · {t.struggle_rate}% struggling · LDI {t.difficulty_index}/100
+                          </div>
+                        </div>
+                      </div>
+                      <span className="font-condensed text-2xl text-ink shrink-0">{t.mean_score}%</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Right: Lethal Curriculum Bottlenecks */}
+              <div className="challenger-zone bg-surface border-2 border-ink p-7 shadow-[4px_4px_0_#6E3AFF]">
+                <div className="flex items-center justify-between border-b border-ink/15 pb-4 mb-5">
+                  <div>
+                    <span className="font-mono text-[11px] uppercase tracking-widest text-violet block font-bold">
+                      {lang === 'ru' ? 'Критические пробелы // Требуют часов' : 'Critical Bottlenecks // Immediate Action'}
+                    </span>
+                    <h4 className="font-display text-2xl font-bold text-ink mt-0.5">
+                      {lang === 'ru' ? 'Сложные для усвоения разделы' : 'Struggling Curriculum Units'}
+                    </h4>
+                  </div>
+                  <span className="px-2.5 py-1 bg-violet text-ivory font-mono text-xs font-bold uppercase tracking-wider border border-ink">
+                    {lang === 'ru' ? 'Критично' : 'Bottleneck'}
+                  </span>
+                </div>
+                <ul className="space-y-3 font-sans text-sm text-ink/90">
+                  {bottleneckTopics.slice(0, 3).map((t, i) => (
+                    <li
+                      key={t.code}
+                      onClick={() => setSelectedTopicCode(t.code)}
+                      className="flex items-start justify-between gap-3 p-3 bg-ivory border border-ink/25 hover:border-violet cursor-pointer"
+                    >
+                      <div className="flex items-start gap-3">
+                        <span className="font-mono text-xs font-bold bg-violet text-ivory border border-ink px-1.5 py-0.5 shrink-0">
+                          0{i + 1}
+                        </span>
+                        <div>
+                          <div className="font-bold text-ink">
+                            [{t.code}] {lang === 'ru' ? t.title_ru : t.title_en}
+                          </div>
+                          <div className="font-mono text-[11px] text-violet font-bold mt-0.5">
+                            {t.struggle_rate}% &lt;55% · LDI {t.difficulty_index}/100 ·{' '}
+                            {lang === 'ru' ? t.primary_bottleneck_ru : t.primary_bottleneck_en}
+                          </div>
+                        </div>
+                      </div>
+                      <span className="font-condensed text-2xl text-violet shrink-0">{t.mean_score}%</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
@@ -1011,7 +1312,7 @@ export default function App() {
                               style={{
                                 fontSize: '11px',
                                 fontWeight: 700,
-                                color: 'var(--text-muted)'
+                                color: 'var(--text-muted)',
                               }}
                             >
                               {String(index + 1).padStart(2, '0')} // {t.code}
@@ -1022,7 +1323,7 @@ export default function App() {
                               fontWeight: 700,
                               fontSize: '14px',
                               marginTop: '2px',
-                              lineHeight: 1.3
+                              lineHeight: 1.3,
                             }}
                           >
                             {lang === 'ru' ? t.title_ru : t.title_en}
@@ -1031,11 +1332,11 @@ export default function App() {
                             style={{
                               fontSize: '12px',
                               color: 'var(--text-muted)',
-                              marginTop: '4px'
+                              marginTop: '4px',
                             }}
                           >
                             {t.planned_hours} {lang === 'ru' ? 'ч по плану' : 'planned hrs'} •{' '}
-                            <span style={{ color: 'var(--status-critical)', fontWeight: 600 }}>
+                            <span style={{ color: 'var(--status-critical)', fontWeight: 700 }}>
                               {t.struggle_rate}% {lang === 'ru' ? 'не освоили (<55%)' : 'struggling (<55%)'}
                             </span>
                           </div>
@@ -1047,7 +1348,7 @@ export default function App() {
                               display: 'flex',
                               justifyContent: 'space-between',
                               fontSize: '12px',
-                              marginBottom: '6px'
+                              marginBottom: '6px',
                             }}
                           >
                             <span style={{ color: 'var(--text-muted)' }}>
@@ -1062,7 +1363,7 @@ export default function App() {
                               className="progress-fill"
                               style={{
                                 width: `${t.mean_score}%`,
-                                background: palette.bar
+                                background: palette.bar,
                               }}
                             />
                           </div>
@@ -1107,14 +1408,14 @@ export default function App() {
                       style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(3, 1fr)',
-                        gap: '10px'
+                        gap: '10px',
                       }}
                     >
                       <div className="control-card">
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                           {lang === 'ru' ? 'Средний балл' : 'Average Score'}
                         </div>
-                        <div className="mono" style={{ fontSize: '20px', fontWeight: 700, marginTop: '2px' }}>
+                        <div className="font-condensed" style={{ fontSize: '28px', marginTop: '2px' }}>
                           {selectedTopic.mean_score}%
                         </div>
                       </div>
@@ -1123,12 +1424,11 @@ export default function App() {
                           {lang === 'ru' ? 'Не справились (<55%)' : 'Struggling (<55%)'}
                         </div>
                         <div
-                          className="mono"
+                          className="font-condensed"
                           style={{
-                            fontSize: '20px',
-                            fontWeight: 700,
+                            fontSize: '28px',
                             marginTop: '2px',
-                            color: 'var(--status-critical)'
+                            color: 'var(--status-critical)',
                           }}
                         >
                           {selectedTopic.struggle_rate}%
@@ -1138,7 +1438,7 @@ export default function App() {
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
                           {lang === 'ru' ? 'Индекс трудности' : 'Difficulty (LDI)'}
                         </div>
-                        <div className="mono" style={{ fontSize: '20px', fontWeight: 700, marginTop: '2px' }}>
+                        <div className="font-condensed" style={{ fontSize: '28px', marginTop: '2px' }}>
                           {selectedTopic.difficulty_index}/100
                         </div>
                       </div>
@@ -1148,10 +1448,9 @@ export default function App() {
                     <div
                       style={{
                         padding: '14px 16px',
-                        borderRadius: '8px',
                         background: 'var(--status-critical-bg)',
-                        border: '1px solid var(--status-critical-border)',
-                        fontSize: '13.5px'
+                        border: '2px solid var(--status-critical-border)',
+                        fontSize: '13.5px',
                       }}
                     >
                       <div
@@ -1161,7 +1460,7 @@ export default function App() {
                           fontWeight: 700,
                           color: 'var(--status-critical)',
                           textTransform: 'uppercase',
-                          marginBottom: '4px'
+                          marginBottom: '4px',
                         }}
                       >
                         {lang === 'ru'
@@ -1183,7 +1482,7 @@ export default function App() {
                           fontWeight: 700,
                           marginBottom: '10px',
                           display: 'flex',
-                          justifyContent: 'space-between'
+                          justifyContent: 'space-between',
                         }}
                       >
                         <span>
@@ -1204,22 +1503,22 @@ export default function App() {
                             lang === 'ru'
                               ? '01. Понимание теории и концепций'
                               : '01. Conceptual Understanding',
-                          val: selectedTopic.conceptual_avg
+                          val: selectedTopic.conceptual_avg,
                         },
                         {
                           label:
                             lang === 'ru'
                               ? '02. Выполнение стандартных алгоритмов'
                               : '02. Procedural Fluency',
-                          val: selectedTopic.procedural_avg
+                          val: selectedTopic.procedural_avg,
                         },
                         {
                           label:
                             lang === 'ru'
                               ? '03. Решение прикладных и нестандартных задач'
                               : '03. Applied Problem-Solving',
-                          val: selectedTopic.applied_avg
-                        }
+                          val: selectedTopic.applied_avg,
+                        },
                       ].map((s, i) => (
                         <div key={i} style={{ marginBottom: '8px' }}>
                           <div
@@ -1227,7 +1526,7 @@ export default function App() {
                               display: 'flex',
                               justifyContent: 'space-between',
                               fontSize: '12px',
-                              marginBottom: '3px'
+                              marginBottom: '3px',
                             }}
                           >
                             <span>{s.label}</span>
@@ -1235,12 +1534,12 @@ export default function App() {
                               {s.val}%
                             </span>
                           </div>
-                          <div className="progress-track" style={{ height: '7px' }}>
+                          <div className="progress-track" style={{ height: '8px' }}>
                             <div
                               className="progress-fill"
                               style={{
                                 width: `${s.val}%`,
-                                background: getScoreColor(s.val).bar
+                                background: getScoreColor(s.val).bar,
                               }}
                             />
                           </div>
@@ -1255,7 +1554,7 @@ export default function App() {
                           fontSize: '12.5px',
                           fontWeight: 700,
                           marginBottom: '8px',
-                          color: 'var(--text-secondary)'
+                          color: 'var(--text-secondary)',
                         }}
                       >
                         {lang === 'ru'
@@ -1274,20 +1573,19 @@ export default function App() {
                                 justifyContent: 'space-between',
                                 alignItems: 'center',
                                 padding: '9px 12px',
-                                borderRadius: '6px',
                                 background: isBest
                                   ? 'var(--status-success-bg)'
                                   : 'var(--bg-canvas)',
                                 border: isBest
-                                  ? '1px solid var(--status-success-border)'
+                                  ? '2px solid var(--ink)'
                                   : '1px solid var(--border-subtle)',
-                                fontSize: '12.5px'
+                                fontSize: '12.5px',
                               }}
                             >
-                              <span style={{ fontWeight: 600 }}>
+                              <span style={{ fontWeight: 700 }}>
                                 {lang === 'ru' ? tb.title_ru : tb.title_en}{' '}
                                 {isBest && (
-                                  <strong style={{ color: 'var(--status-success)' }}>
+                                  <strong>
                                     ({lang === 'ru' ? 'Лучший' : 'Best'})
                                   </strong>
                                 )}
@@ -1357,7 +1655,7 @@ export default function App() {
           <>
             <div className="ieq-section-header">
               <div>
-                <div className="ieq-section-tag">02 // TOPIC DIAGNOSTICS</div>
+                <div className="ieq-section-tag">01 // TOPIC DIAGNOSTICS</div>
                 <h1 className="page-title">
                   {lang === 'ru'
                     ? 'Диагностика сложных для усвоения тем программы'
@@ -1438,7 +1736,7 @@ export default function App() {
                             color:
                               t.struggle_rate >= 30
                                 ? 'var(--status-critical)'
-                                : 'var(--text-primary)'
+                                : 'var(--text-primary)',
                           }}
                         >
                           {t.struggle_rate}% ({t.struggle_count})
@@ -1451,7 +1749,7 @@ export default function App() {
                             ? t.primary_bottleneck_ru
                             : t.primary_bottleneck_en}
                         </td>
-                        <td className="mono" style={{ fontSize: '12px', color: 'var(--accent-teal)', fontWeight: 600 }}>
+                        <td className="mono" style={{ fontSize: '12px', fontWeight: 700 }}>
                           {t.best_textbook?.textbook_code} ({t.best_textbook?.value_added_score}%)
                         </td>
                         <td>
@@ -1514,11 +1812,12 @@ export default function App() {
                       style={{
                         padding: '18px',
                         background: 'var(--bg-canvas)',
-                        borderRadius: '8px',
+                        border: '2px solid var(--ink)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
-                        gap: '16px'
+                        gap: '16px',
+                        flexWrap: 'wrap',
                       }}
                     >
                       <div>
@@ -1560,7 +1859,7 @@ export default function App() {
           <>
             <div className="ieq-section-header">
               <div>
-                <div className="ieq-section-tag">03 // TEXTBOOK EFFICACY BENCHMARK</div>
+                <div className="ieq-section-tag">02 // TEXTBOOK EFFICACY BENCHMARK</div>
                 <h1 className="page-title">
                   {lang === 'ru'
                     ? 'Сравнение эффективности учебников на основе результатов учеников'
@@ -1590,7 +1889,7 @@ export default function App() {
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
-                gap: '20px'
+                gap: '20px',
               }}
             >
               {bundle.textbook_comparisons.map((tb, idx) => (
@@ -1598,10 +1897,7 @@ export default function App() {
                   key={tb.id}
                   className="panel"
                   style={{
-                    borderTop:
-                      idx === 0
-                        ? '4px solid var(--bg-dark)'
-                        : '1px solid var(--border-subtle)'
+                    boxShadow: idx === 0 ? '6px 6px 0 #C8FF2E' : '6px 6px 0 #111111',
                   }}
                 >
                   <div className="panel-header">
@@ -1618,7 +1914,7 @@ export default function App() {
                     </div>
 
                     <div style={{ textAlign: 'right' }}>
-                      <div className="mono" style={{ fontSize: '26px', fontWeight: 700 }}>
+                      <div className="font-condensed" style={{ fontSize: '36px', lineHeight: 1 }}>
                         {tb.composite_efficacy}
                       </div>
                       <div className="mono" style={{ fontSize: '10px', color: 'var(--text-muted)' }}>
@@ -1647,8 +1943,8 @@ export default function App() {
                               fontSize: '12px',
                               color:
                                 tb.value_added_delta >= 0
-                                  ? 'var(--status-success)'
-                                  : 'var(--status-critical)'
+                                  ? 'var(--ink)'
+                                  : 'var(--status-critical)',
                             }}
                           >
                             ({tb.value_added_delta >= 0 ? `+${tb.value_added_delta}%` : `${tb.value_added_delta}%`})
@@ -1682,11 +1978,11 @@ export default function App() {
                               display: 'inline-block',
                               margin: '2px 5px 2px 0',
                               padding: '2px 7px',
-                              borderRadius: '4px',
-                              background: 'var(--status-success-bg)',
-                              color: 'var(--status-success)',
+                              background: 'var(--lime)',
+                              border: '1px solid var(--ink)',
+                              color: 'var(--ink)',
                               fontWeight: 700,
-                              fontSize: '11.5px'
+                              fontSize: '11.5px',
                             }}
                           >
                             {w.code}
@@ -1769,9 +2065,9 @@ export default function App() {
                               className="mono"
                               style={{
                                 background: isWinner
-                                  ? 'var(--status-success-bg)'
+                                  ? 'rgba(200, 255, 46, 0.45)'
                                   : 'transparent',
-                                fontWeight: isWinner ? 700 : 500
+                                fontWeight: isWinner ? 700 : 500,
                               }}
                             >
                               {cell ? `${cell.value_added_score}% (Raw: ${cell.mean_score}%)` : '—'}
@@ -1800,7 +2096,7 @@ export default function App() {
           <>
             <div className="ieq-section-header">
               <div>
-                <div className="ieq-section-tag">04 // TEACHING-HOUR OPTIMIZATION</div>
+                <div className="ieq-section-tag">03 // TEACHING-HOUR OPTIMIZATION</div>
                 <h1 className="page-title">
                   {lang === 'ru'
                     ? 'Рекомендации по перераспределению учебных часов'
@@ -1860,7 +2156,7 @@ export default function App() {
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                  gap: '16px'
+                  gap: '16px',
                 }}
               >
                 <div className="control-card">
@@ -1959,12 +2255,12 @@ export default function App() {
                 <div className="kpi-card-top">
                   <span>{lang === 'ru' ? 'Ожидаемый рост усвоения' : 'Projected Mastery Lift'}</span>
                 </div>
-                <div className="kpi-value" style={{ color: 'var(--status-success)' }}>
+                <div className="kpi-value">
                   {bundle.optimization_plan.summary.current_subject_mastery}% →{' '}
                   {bundle.optimization_plan.summary.projected_subject_mastery}%
                 </div>
                 <div className="kpi-footnote">
-                  <strong style={{ color: 'var(--status-success)' }}>
+                  <strong className="bg-lime px-1.5 border border-ink">
                     +{bundle.optimization_plan.summary.projected_subject_gain}%
                   </strong>{' '}
                   {lang === 'ru' ? 'прирост среднего балла' : 'projected gain'}
@@ -1975,12 +2271,12 @@ export default function App() {
                 <div className="kpi-card-top">
                   <span>{lang === 'ru' ? 'Сокращение отстающих (<55%)' : 'Struggle Rate Reduction'}</span>
                 </div>
-                <div className="kpi-value" style={{ color: 'var(--accent-teal)' }}>
+                <div className="kpi-value">
                   {bundle.optimization_plan.summary.current_struggle_rate}% →{' '}
                   {bundle.optimization_plan.summary.projected_struggle_rate}%
                 </div>
                 <div className="kpi-footnote">
-                  <strong style={{ color: 'var(--accent-teal)' }}>
+                  <strong className="bg-lime px-1.5 border border-ink">
                     -{bundle.optimization_plan.summary.projected_struggle_reduction}%
                   </strong>{' '}
                   {lang === 'ru' ? 'меньше неуспевающих' : 'fewer struggling students'}
@@ -2035,7 +2331,7 @@ export default function App() {
                             justifyContent: 'space-between',
                             alignItems: 'center',
                             gap: '10px',
-                            marginBottom: '6px'
+                            marginBottom: '6px',
                           }}
                         >
                           <div style={{ fontWeight: 700, fontSize: '13.5px' }}>
@@ -2051,18 +2347,17 @@ export default function App() {
                               onChange={(e) =>
                                 setCustomHoursMap((prev) => ({
                                   ...prev,
-                                  [r.topic_id]: Number(e.target.value)
+                                  [r.topic_id]: Number(e.target.value),
                                 }))
                               }
                               className="mono"
                               style={{
                                 width: '62px',
                                 padding: '4px 6px',
-                                borderRadius: '5px',
-                                border: '1px solid var(--border-strong)',
+                                border: '2px solid var(--ink)',
                                 fontWeight: 700,
                                 textAlign: 'center',
-                                background: '#fff'
+                                background: '#fff',
                               }}
                             />
                             <span className="mono" style={{ fontSize: '12px', fontWeight: 700 }}>
@@ -2087,7 +2382,7 @@ export default function App() {
           <>
             <div className="ieq-section-header">
               <div>
-                <div className="ieq-section-tag">05 // STUDENT PERFORMANCE EXPLORER</div>
+                <div className="ieq-section-tag">04 // STUDENT PERFORMANCE EXPLORER</div>
                 <h1 className="page-title">
                   {lang === 'ru'
                     ? 'Индивидуальные результаты учеников и группы риска'
@@ -2109,7 +2404,7 @@ export default function App() {
                   flexWrap: 'wrap',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  gap: '12px'
+                  gap: '12px',
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '240px' }}>
@@ -2133,20 +2428,20 @@ export default function App() {
                     { id: 'ALL', label: lang === 'ru' ? 'Все ученики' : 'All Students' },
                     {
                       id: 'Intervention Required',
-                      label: lang === 'ru' ? 'Нужна помощь (<55%)' : 'Intervention Required (<55%)'
+                      label: lang === 'ru' ? 'Нужна помощь (<55%)' : 'Intervention Required (<55%)',
                     },
                     {
                       id: 'Developing',
-                      label: lang === 'ru' ? 'Базовый (55–69%)' : 'Developing (55–69%)'
+                      label: lang === 'ru' ? 'Базовый (55–69%)' : 'Developing (55–69%)',
                     },
                     {
                       id: 'Proficient',
-                      label: lang === 'ru' ? 'Хороший (70–84%)' : 'Proficient (70–84%)'
+                      label: lang === 'ru' ? 'Хороший (70–84%)' : 'Proficient (70–84%)',
                     },
                     {
                       id: 'Advanced',
-                      label: lang === 'ru' ? 'Отличный (≥85%)' : 'Advanced (≥85%)'
-                    }
+                      label: lang === 'ru' ? 'Отличный (≥85%)' : 'Advanced (≥85%)',
+                    },
                   ].map((tier) => (
                     <button
                       key={tier.id}
@@ -2255,7 +2550,7 @@ export default function App() {
                               display: 'flex',
                               justifyContent: 'space-between',
                               fontSize: '13px',
-                              marginBottom: '5px'
+                              marginBottom: '5px',
                             }}
                           >
                             <span>
@@ -2266,12 +2561,12 @@ export default function App() {
                               {rec.score_pct}% ({rec.time_spent_min} min)
                             </span>
                           </div>
-                          <div className="progress-track" style={{ height: '7px' }}>
+                          <div className="progress-track" style={{ height: '8px' }}>
                             <div
                               className="progress-fill"
                               style={{
                                 width: `${rec.score_pct}%`,
-                                background: palette.bar
+                                background: palette.bar,
                               }}
                             />
                           </div>
@@ -2280,7 +2575,8 @@ export default function App() {
                               style={{
                                 fontSize: '11.5px',
                                 color: 'var(--status-critical)',
-                                marginTop: '5px'
+                                marginTop: '5px',
+                                fontWeight: 600,
                               }}
                             >
                               {lang === 'ru' ? 'Типичная ошибка:' : 'Error tag:'} {rec.error_tag}
@@ -2301,7 +2597,7 @@ export default function App() {
           <>
             <div className="ieq-section-header">
               <div>
-                <div className="ieq-section-tag">06 // GOOGLE GEMINI AI METHODOLOGIST</div>
+                <div className="ieq-section-tag">05 // GOOGLE GEMINI AI METHODOLOGIST</div>
                 <h1 className="page-title">
                   {lang === 'ru'
                     ? 'ИИ-Ассистент методиста (Google Gemini API)'
@@ -2328,7 +2624,7 @@ export default function App() {
               onSaveToReport={(content) => {
                 setSavedReportAiSections((prev) => [
                   { content, modelUsed: 'gemini-3-flash-preview' },
-                  ...prev
+                  ...prev,
                 ]);
                 setSaveToast(
                   lang === 'ru'
@@ -2371,6 +2667,32 @@ export default function App() {
         )}
       </main>
 
+      {/* Minimalist Editorial Footer (Exact match to innovative hackaton.html) */}
+      <footer className="border-t-2 border-ink py-10 bg-ivory no-print mt-auto">
+        <div className="max-w-7xl mx-auto px-6 md:px-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <span className="font-condensed text-2xl tracking-wider">CURRICULAB</span>
+            <span className="font-mono text-xs text-subtle border-l border-ink/20 pl-4">
+              {lang === 'ru'
+                ? 'Интеллектуальная система оценки эффективности учебников и учебных программ'
+                : 'Data-Driven Curriculum & Textbook Efficacy Lab — Built for Methodologists & Judges'}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-6 font-mono text-xs uppercase text-subtle">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className="hover:text-ink"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </footer>
+
       {/* Global Slide-Over Gemini AI Methodologist Drawer */}
       {aiDrawerOpen && (
         <div
@@ -2392,7 +2714,7 @@ export default function App() {
             onSaveToReport={(content) => {
               setSavedReportAiSections((prev) => [
                 { content, modelUsed: 'gemini-3-flash-preview' },
-                ...prev
+                ...prev,
               ]);
               setSaveToast(
                 lang === 'ru'
